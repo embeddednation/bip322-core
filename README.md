@@ -80,6 +80,22 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
 `bip322ms inspect proof.psbt` applies the BIP's *PSBT signer* detection rules
 and shows the message, address, partial signatures and any problems.
 
+To check one real signature against every reference implementation at once
+(after `refcheck/fetch.sh` and `refcheck/btcd/build.sh`):
+
+```sh
+.venv/bin/python -m refcheck.verify_one -a bc1q... -m "message" --signature-file proof.sig
+```
+
+## Walkthrough with dummy keys
+
+`examples/walkthrough.sh` runs the whole flow with three software cosigners
+standing in for the Coldcards: `bip322ms keygen` (deterministic dummy keys),
+a Coldcard-format wallet file, `create`, `inspect`, two separate `sign`s,
+`combine`, `finalize`, `verify`, three negative checks, and finally
+`refcheck.verify_one`, which ends with five independent verifiers agreeing.
+Artifacts land in `examples/out/`.
+
 ## Verification semantics
 
 `verify_message()` implements the BIP's verification process:

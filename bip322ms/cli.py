@@ -238,6 +238,39 @@ def cmd_lint(args) -> int:
     return 0
 
 
+def cmd_keygen(args) -> int:
+    """Generate a cosigner key set for tests and walkthroughs (never for real funds)."""
+    import hashlib
+    import os
+
+    from embit.bip32 import HDKey
+
+    from .wallet import path_from_str, path_to_str
+
+    if args.seed is not None:
+        seed = hashlib.sha512(("bip322ms-keygen:" + args.seed).encode("utf-8")).digest()
+    else:
+        seed = os.urandom(64)
+    net = NETWORKS[args.network or "main"]
+    master = HDKey.from_seed(seed, version=net["xprv"])
+    origin = path_to_str(path_from_str(args.origin), prefix="")[1:]
+    account = master.derive("m/" + origin)
+    fp = master.my_fingerprint.hex()
+    xprv = account.to_base58(net["xprv"])
+    xpub = account.to_public().to_base58(net["xpub"])
+    out = {
+        "label": args.label,
+        "warning": "test keys only; anyone with the seed text can derive them",
+        "fingerprint": fp,
+        "origin": "m/" + origin,
+        "xpub_expression": f"[{fp}/{origin}]{xpub}/<0;1>/*",
+        "xprv_expression": f"[{fp}/{origin}]{xprv}/<0;1>/*",
+        "coldcard_line": f"{fp.upper()}: {xpub}",
+    }
+    print(json.dumps(out, indent=2))
+    return 0
+
+
 def cmd_engines(args) -> int:  # noqa: ARG001
     print(json.dumps({"engines": available_engines()}))
     return 0
@@ -336,6 +369,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("lint-message", help="check a message against Coldcard's display rules")
     _add_message_args(p)
     p.set_defaults(func=cmd_lint)
+
+    p = sub.add_parser("keygen", help="generate a dummy cosigner (fingerprint, xpub/xprv expressions, Coldcard line) for tests")
+    p.add_argument("--label", default="cosigner")
+    p.add_argument("--seed", help="derive deterministically from this text (omit for random)")
+    p.add_argument("--origin", default="48h/0h/0h/2h", help="BIP32 origin path (default: BIP-48 P2WSH multisig account 0)")
+    p.add_argument("--network", choices=sorted(NETWORKS), default=None)
+    p.set_defaults(func=cmd_keygen)
 
     p = sub.add_parser("engines", help="list available script engines")
     p.set_defaults(func=cmd_engines)

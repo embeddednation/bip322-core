@@ -22,11 +22,12 @@ class RPCError(Exception):
 class Daemon:
     """A regtest bitcoind with no wallet and no networking, reachable over JSON-RPC."""
 
-    def __init__(self, bindir: Path, datadir: Path, rpcport: int, name: str = "bitcoind"):
+    def __init__(self, bindir: Path, datadir: Path, rpcport: int, name: str = "bitcoind", chain: str = "regtest"):
         self.bitcoind = Path(bindir) / "bitcoind"
         self.datadir = Path(datadir)
         self.rpcport = rpcport
         self.name = name
+        self.chain = chain
         self.proc: subprocess.Popen | None = None
         self.auth = base64.b64encode(b"refcheck:refcheck").decode()
 
@@ -39,7 +40,7 @@ class Daemon:
             shutil.rmtree(self.datadir)
         self.datadir.mkdir(parents=True)
         args = [
-            str(self.bitcoind), "-regtest", f"-datadir={self.datadir}", f"-rpcport={self.rpcport}",
+            str(self.bitcoind), f"-chain={self.chain}", f"-datadir={self.datadir}", f"-rpcport={self.rpcport}",
             "-rpcbind=127.0.0.1", "-rpcallowip=127.0.0.1", "-rpcuser=refcheck", "-rpcpassword=refcheck",
             "-server=1", "-listen=0", "-connect=0", "-dnsseed=0", "-disablewallet=1", "-printtoconsole=0",
         ]

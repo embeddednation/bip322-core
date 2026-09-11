@@ -50,3 +50,24 @@ def test_cli_lint(capsys):
     assert main(["lint-message", "-m", "x"]) == 1
     assert main(["lint-message", "-m", "a" * 331]) == 1
     assert main(["lint-message", "-m", "tab\tand\nnewline are fine"]) == 0
+
+
+def test_cli_keygen_is_deterministic_and_usable(capsys, tmp_path):
+    assert main(["keygen", "--label", "A", "--seed", "demo cosigner A"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert main(["keygen", "--seed", "demo cosigner A"]) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert first["xpub_expression"] == second["xpub_expression"]
+    assert first["fingerprint"] == "ea34d476" and first["origin"] == "m/48h/0h/0h/2h"
+    assert first["xprv_expression"].startswith("[ea34d476/48h/0h/0h/2h]xprv") and first["xprv_expression"].endswith("/<0;1>/*")
+    assert first["coldcard_line"].startswith("EA34D476: xpub")
+    from bip322ms.wallet import MultisigWallet
+
+    keys = []
+    for label in "ABC":
+        assert main(["keygen", "--seed", f"demo cosigner {label}"]) == 0
+        keys.append(json.loads(capsys.readouterr().out)["xpub_expression"])
+    wallet = MultisigWallet.from_descriptor("wsh(sortedmulti(2," + ",".join(keys) + "))")
+    assert wallet.derive(0).address == "bc1qw7ysc083rxm7094nm68hhqa2zlvfqu92xzejuwqcvcfah6gavyrs3fucvy"
+    assert main(["keygen", "--network", "regtest", "--seed", "x"]) == 0
+    assert json.loads(capsys.readouterr().out)["xpub_expression"].split("]")[1].startswith("tpub")

@@ -9,3 +9,4 @@ refcheck/btcd/btcd-bip322
 build/
 dist/
 refcheck/btcd/build.log
+examples/out/
