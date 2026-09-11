@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+refcheck/bin/
+refcheck/out/
+refcheck/btcd/btcd-bip322
+*.egg-info/
+build/
+dist/
+refcheck/btcd/build.log

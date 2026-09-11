@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bip322ms"
+version = "0.1.0"
+description = "BIP-322 (simple / full) message signing tooling for P2WSH multisig quorums: PSBT creation, finalization and verification"
+requires-python = ">=3.10"
+dependencies = [
+    "embit>=0.8.0",
+    "btclib>=2026.9.10",
+]
+
+[project.optional-dependencies]
+kernel = ["py-bitcoinkernel>=0.1.0a5"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+bip322ms = "bip322ms.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["bip322ms*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
