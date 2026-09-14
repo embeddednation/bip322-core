@@ -18,11 +18,8 @@ for L in A B C; do
   echo "  $L: fingerprint $(field "$WORK/cosigner-$L.json" fingerprint)  $(field "$WORK/cosigner-$L.json" coldcard_line | cut -c1-40)..."
 done
 
-step "2. wallet description in Coldcard multisig-export format"
-{
-  echo "Name: demo-2of3"; echo "Policy: 2 of 3"; echo "Derivation: m/48'/0'/0'/2'"; echo "Format: P2WSH"; echo
-  for L in A B C; do field "$WORK/cosigner-$L.json" coldcard_line; done
-} > "$WORK/wallet.txt"
+step "2. wallet description in Coldcard multisig-export format, built from the three cosigner files"
+run $CLI makewallet -t 2 --name demo-2of3 "$WORK"/cosigner-{A,B,C}.json -o "$WORK/wallet.txt"
 cat "$WORK/wallet.txt"
 run $CLI wallet -w "$WORK/wallet.txt" --addresses 2 > "$WORK/wallet.json"
 $PY -c "import json;d=json.load(open('$WORK/wallet.json'));print(json.dumps({k:d[k] for k in ('policy','script','descriptor','addresses')},indent=2))"
@@ -36,8 +33,8 @@ step "4. inspect the unsigned PSBT (the BIP-322 'PSBT signer' checks a Coldcard 
 run $CLI inspect "$WORK/proof.psbt"
 
 step "5. cosigners A and C sign separately (this is where two Coldcards would sign)"
-run $CLI sign "$WORK/proof.psbt" -k "$(field "$WORK/cosigner-A.json" xprv_expression)" -o "$WORK/proof-A.psbt"
-run $CLI sign "$WORK/proof.psbt" -k "$(field "$WORK/cosigner-C.json" xprv_expression)" -o "$WORK/proof-C.psbt"
+run $CLI sign "$WORK/proof.psbt" -k "$WORK/cosigner-A.json" -o "$WORK/proof-A.psbt"
+run $CLI sign "$WORK/proof.psbt" -k "$WORK/cosigner-C.json" -o "$WORK/proof-C.psbt"
 echo "partial signatures in proof-A.psbt:"; $CLI inspect "$WORK/proof-A.psbt" | $PY -c "import json,sys;print(json.dumps(json.load(sys.stdin)['partial_sigs'],indent=2))"
 
 step "6. combine the two signed PSBTs"

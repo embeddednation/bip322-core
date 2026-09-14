@@ -71,3 +71,43 @@ def test_cli_keygen_is_deterministic_and_usable(capsys, tmp_path):
     assert wallet.derive(0).address == "bc1qw7ysc083rxm7094nm68hhqa2zlvfqu92xzejuwqcvcfah6gavyrs3fucvy"
     assert main(["keygen", "--network", "regtest", "--seed", "x"]) == 0
     assert json.loads(capsys.readouterr().out)["xpub_expression"].split("]")[1].startswith("tpub")
+
+
+def test_cli_makewallet_and_sign_from_keygen_files(tmp_path, capsys):
+    files = []
+    for label in "ABC":
+        assert main(["keygen", "--seed", f"demo cosigner {label}"]) == 0
+        f = tmp_path / f"cosigner-{label}.json"
+        f.write_text(capsys.readouterr().out)
+        files.append(str(f))
+    wallet_file = tmp_path / "wallet.txt"
+    assert main(["makewallet", "-t", "2", *files, "--name", "demo", "-o", str(wallet_file)]) == 0
+    text = wallet_file.read_text()
+    assert "Policy: 2 of 3" in text and "Derivation: m/48'/0'/0'/2'" in text and "Format: P2WSH" in text
+    assert "EA34D476: xpub" in text and text.count(": xpub") == 3
+    info = json.loads(capsys.readouterr().err)
+    assert info["first_address"] == "bc1qw7ysc083rxm7094nm68hhqa2zlvfqu92xzejuwqcvcfah6gavyrs3fucvy"
+    # descriptor format from a mix of inputs: JSON file, key expression, Coldcard line
+    expr = json.loads((tmp_path / "cosigner-B.json").read_text())["xpub_expression"]
+    line = json.loads((tmp_path / "cosigner-C.json").read_text())["coldcard_line"]
+    assert main(["makewallet", "-t", "2", files[0], expr, line, "--format", "descriptor"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert out.startswith("wsh(sortedmulti(2,[ea34d476/48h/0h/0h/2h]xpub") and "#" in out
+    from bip322ms.wallet import MultisigWallet
+
+    assert MultisigWallet.from_descriptor(out).derive(0).address == info["first_address"]
+    # duplicate cosigner and bad threshold are refused
+    assert main(["makewallet", "-t", "2", files[0], files[0], files[1]]) == 2
+    assert main(["makewallet", "-t", "4", *files]) == 2
+    capsys.readouterr()
+    # sign with -k pointing at the keygen JSON files, sequentially, then finalize
+    address = info["first_address"]
+    unsigned = tmp_path / "u.psbt"
+    assert main(["create", "-w", str(wallet_file), "-a", address, "-m", MESSAGE, "-o", str(unsigned)]) == 0
+    a = tmp_path / "a.psbt"
+    ab = tmp_path / "ab.psbt"
+    assert main(["sign", str(unsigned), "-k", files[0], "-o", str(a)]) == 0
+    assert main(["sign", str(a), "-k", files[1], "-o", str(ab)]) == 0
+    assert main(["finalize", str(ab)]) == 0
+    sig = capsys.readouterr().out.strip().splitlines()[0]
+    assert main(["verify", "-a", address, "-s", sig, "-m", MESSAGE]) == 0

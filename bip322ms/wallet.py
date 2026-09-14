@@ -7,6 +7,8 @@ Sparrow, Coldcard and Bitcoin Core all export).
 
 from __future__ import annotations
 
+import json
+import os
 import re
 from dataclasses import dataclass
 from io import BytesIO
@@ -14,6 +16,7 @@ from io import BytesIO
 from embit import ec
 from embit.bip32 import HDKey
 from embit.descriptor import Descriptor
+from embit.descriptor.arguments import Key
 from embit.descriptor.checksum import add_checksum
 from embit.finalizer import parse_multisig
 from embit.networks import NETWORKS
@@ -342,3 +345,71 @@ def wallet_from_file(path: str, network: str | None = None) -> MultisigWallet:
     if stripped.startswith("wsh(") or stripped.startswith("sh("):
         return MultisigWallet.from_descriptor(stripped, network=network or "main")
     return MultisigWallet.from_coldcard_config(text, network=network)
+
+
+# --------------------------------------------------------------------------- #
+# building a wallet description from cosigner keys
+# --------------------------------------------------------------------------- #
+
+DEFAULT_ORIGIN = "m/48h/0h/0h/2h"
+
+
+def cosigner_from_text(text: str, *, default_origin: str = DEFAULT_ORIGIN) -> Cosigner:
+    """Parse one cosigner given as
+
+    * a ``bip322ms keygen`` JSON file path (uses its ``xpub_expression``),
+    * a key expression ``[fingerprint/path]xpub.../<0;1>/*`` (xprv accepted, public part used),
+    * a Coldcard export line ``XFP: xpub...`` (origin = ``default_origin``).
+    """
+    text = text.strip()
+    if os.path.isfile(text):
+        with open(text, "r", encoding="utf-8") as fh:
+            content = fh.read().strip()
+        if content.startswith("{"):
+            data = json.loads(content)
+            expr = data.get("xpub_expression") or data.get("xprv_expression")
+            if not expr:
+                raise WalletError(f"{text}: JSON has no xpub_expression")
+            return cosigner_from_text(expr, default_origin=default_origin)
+        return cosigner_from_text(content, default_origin=default_origin)
+    match = _XFP_LINE.match(text)
+    if match:
+        xfp, xpub_text = match.groups()
+        hd = _parse_xpub_any_version(xpub_text)
+        hd = hd.to_public() if hd.is_private else hd
+        return Cosigner(bytes.fromhex(xfp), tuple(path_from_str(default_origin)), hd)
+    if text.startswith("["):
+        try:
+            key = Key.read_from(BytesIO(text.encode()))
+        except Exception as exc:  # noqa: BLE001
+            raise WalletError(f"cannot parse key expression {text[:24]}...: {exc}") from exc
+        if not key.is_extended or key.origin is None:
+            raise WalletError("key expression must be an extended key with [fingerprint/path] origin")
+        hd = key.key.to_public() if key.key.is_private else key.key
+        return Cosigner(bytes(key.origin.fingerprint), tuple(key.origin.derivation), hd)
+    raise WalletError(
+        f"cannot interpret {text[:24]!r} as a cosigner: give a keygen JSON file, "
+        "a [fingerprint/path]xpub expression or a Coldcard 'XFP: xpub' line"
+    )
+
+
+def coldcard_config_text(name: str, threshold: int, cosigners: list[Cosigner], network: str = "main") -> str:
+    """Render cosigners as a Coldcard multisig export file (Format: P2WSH)."""
+    if not 1 <= threshold <= len(cosigners):
+        raise WalletError(f"threshold {threshold} is not between 1 and {len(cosigners)}")
+    lines = [f"Name: {name}", f"Policy: {threshold} of {len(cosigners)}", "Format: P2WSH"]
+    origins = {c.origin_path for c in cosigners}
+    if len(origins) == 1:
+        lines.append("Derivation: " + path_to_str(cosigners[0].origin_path, hardened_marker="'"))
+    lines.append("")
+    for c in cosigners:
+        if len(origins) > 1:
+            lines.append("Derivation: " + path_to_str(c.origin_path, hardened_marker="'"))
+        lines.append(f"{c.fingerprint_hex.upper()}: {c.xpub.to_base58(NETWORKS[network]['xpub'])}")
+    return "\n".join(lines) + "\n"
+
+
+def wallet_from_cosigners(threshold: int, cosigners: list[Cosigner], network: str = "main", name: str | None = None, sorted_keys: bool = True) -> MultisigWallet:
+    fn = "sortedmulti" if sorted_keys else "multi"
+    keys = ",".join(c.key_expression(network) for c in cosigners)
+    return MultisigWallet.from_descriptor(f"wsh({fn}({threshold},{keys}))", network=network, name=name)

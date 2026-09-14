@@ -28,7 +28,15 @@ from .psbt import (
     signature_from_psbt,
 )
 from .verify import verify_message
-from .wallet import MultisigWallet, WalletError, wallet_from_file
+from .wallet import (
+    DEFAULT_ORIGIN,
+    MultisigWallet,
+    WalletError,
+    coldcard_config_text,
+    cosigner_from_text,
+    wallet_from_cosigners,
+    wallet_from_file,
+)
 
 
 class CLIError(Exception):
@@ -152,11 +160,49 @@ def cmd_sign(args) -> int:
         raise CLIError("refusing to sign: not a well-formed BIP-322 PSBT: " + "; ".join(info.problems))
     total = 0
     for key in args.key:
-        total += sign_psbt(psbt, key)
+        total += sign_psbt(psbt, _read_signer_key(key))
     if total == 0:
         raise CLIError("no signatures added (key does not match any input derivation)")
     _write_psbt(psbt, args.output, binary=args.binary)
     print(f"added {total} signature(s)", file=sys.stderr)
+    return 0
+
+
+def _read_signer_key(text: str) -> str:
+    """``-k`` accepts a key string, a bip322ms keygen JSON file, or a file holding the key."""
+    if not Path(text).is_file():
+        return text
+    content = Path(text).read_text(encoding="utf-8").strip()
+    if content.startswith("{"):
+        data = json.loads(content)
+        if not data.get("xprv_expression"):
+            raise CLIError(f"{text}: JSON has no xprv_expression (public-only cosigner file?)")
+        return data["xprv_expression"]
+    return content
+
+
+def cmd_makewallet(args) -> int:
+    cosigners = [cosigner_from_text(k, default_origin=args.derivation) for k in args.keys]
+    fps = [c.fingerprint_hex for c in cosigners]
+    if len(set(fps)) != len(fps):
+        raise CLIError("duplicate cosigner fingerprints: " + ", ".join(fps))
+    network = args.network or "main"
+    name = args.name or f"bip322ms-{args.threshold}of{len(cosigners)}"
+    wallet = wallet_from_cosigners(args.threshold, cosigners, network=network, name=name)
+    if args.format == "coldcard":
+        text = coldcard_config_text(name, args.threshold, cosigners, network=network)
+        # round-trip check: the file must parse back to the same wallet
+        if MultisigWallet.from_coldcard_config(text, network=network).to_descriptor() != wallet.to_descriptor():
+            raise CLIError("internal error: Coldcard export text does not round-trip")
+    else:
+        text = wallet.to_descriptor() + "\n"
+    if args.output and args.output != "-":
+        Path(args.output).write_text(text)
+    else:
+        sys.stdout.write(text)
+    info = wallet.describe()
+    info["first_address"] = wallet.derive(0).address
+    print(json.dumps({k: info[k] for k in ("name", "network", "policy", "script", "first_address")}, indent=2), file=sys.stderr)
     return 0
 
 
@@ -307,6 +353,16 @@ def build_parser() -> argparse.ArgumentParser:
     _add_wallet_args(p)
     p.add_argument("--addresses", type=int, default=0, help="also list the first N receive/change addresses")
     p.set_defaults(func=cmd_wallet)
+
+    p = sub.add_parser("makewallet", help="write a wallet file (Coldcard export or descriptor) from cosigner keys")
+    p.add_argument("keys", nargs="+", help="cosigners: keygen JSON files, [fp/path]xpub expressions, or Coldcard 'XFP: xpub' lines")
+    p.add_argument("--threshold", "-t", type=int, required=True, help="signatures required (the k in k-of-n)")
+    p.add_argument("--name", help="wallet name (default bip322ms-<k>of<n>)")
+    p.add_argument("--format", choices=["coldcard", "descriptor"], default="coldcard")
+    p.add_argument("--derivation", default=DEFAULT_ORIGIN, help="origin path assumed for bare 'XFP: xpub' lines")
+    p.add_argument("--network", choices=sorted(NETWORKS), default=None)
+    p.add_argument("--output", "-o", help="output file (default stdout)")
+    p.set_defaults(func=cmd_makewallet)
 
     p = sub.add_parser("create", help="create the BIP-322 PSBT for a message and a wallet address")
     _add_wallet_args(p)

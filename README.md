@@ -90,11 +90,25 @@ To check one real signature against every reference implementation at once
 ## Walkthrough with dummy keys
 
 `examples/walkthrough.sh` runs the whole flow with three software cosigners
-standing in for the Coldcards: `bip322ms keygen` (deterministic dummy keys),
-a Coldcard-format wallet file, `create`, `inspect`, two separate `sign`s,
-`combine`, `finalize`, `verify`, three negative checks, and finally
-`refcheck.verify_one`, which ends with five independent verifiers agreeing.
-Artifacts land in `examples/out/`.
+standing in for the Coldcards. By hand it is:
+
+```sh
+for L in A B C; do bip322ms keygen --label $L --seed "demo cosigner $L" > cosigner-$L.json; done
+bip322ms makewallet -t 2 --name demo-2of3 cosigner-A.json cosigner-B.json cosigner-C.json -o wallet.txt
+bip322ms wallet -w wallet.txt --addresses 2                 # pick an address
+bip322ms create -w wallet.txt -a bc1q... -m "demo proof" --strict-coldcard -o proof.psbt
+bip322ms sign proof.psbt   -k cosigner-A.json -o proof-A.psbt   # "Coldcard A"
+bip322ms sign proof-A.psbt -k cosigner-B.json -o proof-AB.psbt  # "Coldcard B" (or sign proof.psbt separately and `combine`)
+bip322ms finalize proof-AB.psbt --engines btclib,kernel --signature-file proof.sig
+bip322ms verify -a bc1q... -m "demo proof" --signature-file proof.sig --engines btclib,kernel
+```
+
+`makewallet` accepts keygen JSON files, `[fp/path]xpub` expressions and
+Coldcard `XFP: xpub` lines in any mix, and writes either the Coldcard export
+format (default) or a descriptor (`--format descriptor`). `sign -k` accepts a
+keygen JSON file, a file containing the key, or the key text itself.
+The script also runs three negative checks and `refcheck.verify_one`, which
+ends with five independent verifiers agreeing. Artifacts land in `examples/out/`.
 
 ## Verification semantics
 
