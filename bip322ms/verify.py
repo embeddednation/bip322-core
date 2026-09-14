@@ -72,7 +72,7 @@ class VerifyResult:
             "sequence": self.sequence,
             "extra_inputs": self.extra_inputs,
             "sighash_types": self.sighash_types,
-            "engines": [{"engine": e.engine, "ok": e.ok, "error": e.error} for e in self.engines],
+            "engines": [e.to_dict() for e in self.engines],
         }
 
 

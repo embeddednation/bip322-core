@@ -28,6 +28,17 @@ class EngineRun:
     #: sighash types of every stack element the interpreter consumed as a
     #: signature (btclib only; the kernel does not report them)
     sighash_types: list[int] = field(default_factory=list)
+    #: version of the interpreter that ran (btclib release, or the Bitcoin Core version inside libbitcoinkernel)
+    version: str | None = None
+    #: for the kernel: the Python bindings package and version
+    bindings: str | None = None
+
+    def to_dict(self) -> dict:
+        out = {"engine": self.engine, "version": self.version}
+        if self.bindings:
+            out["bindings"] = self.bindings
+        out.update({"ok": self.ok, "error": self.error})
+        return out
 
 
 # --------------------------------------------------------------------------- #
@@ -61,14 +72,16 @@ BTCLIB_UPGRADEABLE = (
 
 
 def btclib_run(prevouts: Sequence[Prevout], tx_bytes: bytes, flags: ScriptFlag, name: str = "btclib") -> EngineRun:
+    import btclib
+
     hash_types: list[int] = []
     try:
         tx = Tx.parse(tx_bytes)
         outs = [TxOut(value, spk) for value, spk in prevouts]
         verify_transaction(outs, tx, flags, check_amounts=True, hash_types=hash_types)
     except (BTClibValueError, BTClibRuntimeError, ValueError, RuntimeError) as exc:
-        return EngineRun(name, False, f"{type(exc).__name__}: {exc}", hash_types)
-    return EngineRun(name, True, None, hash_types)
+        return EngineRun(name, False, f"{type(exc).__name__}: {exc}", hash_types, version=btclib.__version__)
+    return EngineRun(name, True, None, hash_types, version=btclib.__version__)
 
 
 # --------------------------------------------------------------------------- #
@@ -87,6 +100,8 @@ def kernel_available() -> bool:
 
 def kernel_run(prevouts: Sequence[Prevout], tx_bytes: bytes) -> EngineRun:
     """Verify every input with Bitcoin Core's interpreter (consensus flags)."""
+    versions = engine_versions().get("kernel") or {}
+    meta = {"version": versions.get("bitcoin-core"), "bindings": f"py-bitcoinkernel {versions.get('py-bitcoinkernel')}" if versions else None}
     try:
         from pbk.script import (
             PrecomputedTransactionData,
@@ -104,12 +119,12 @@ def kernel_run(prevouts: Sequence[Prevout], tx_bytes: bytes) -> EngineRun:
         for index, (value, spk) in enumerate(prevouts):
             ok = ScriptPubkey(bytes(spk)).verify(value, tx, precomputed, index, ScriptVerificationFlags.ALL)
             if not ok:
-                return EngineRun("kernel", False, f"input {index}: script evaluation failed")
+                return EngineRun("kernel", False, f"input {index}: script evaluation failed", **meta)
     except ScriptVerifyException as exc:
-        return EngineRun("kernel", False, f"script verify status: {exc.status.name}")
+        return EngineRun("kernel", False, f"script verify status: {exc.status.name}", **meta)
     except Exception as exc:  # noqa: BLE001
-        return EngineRun("kernel", False, f"{type(exc).__name__}: {exc}")
-    return EngineRun("kernel", True)
+        return EngineRun("kernel", False, f"{type(exc).__name__}: {exc}", **meta)
+    return EngineRun("kernel", True, **meta)
 
 
 def available_engines() -> list[str]:
