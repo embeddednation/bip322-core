@@ -161,3 +161,18 @@ def test_legacy_signature_only_for_p2pkh(proof):
     r = verify_message("1BitcoinEaterAddressDontSendf59kuE", fake, MESSAGE)
     assert r.state is State.INVALID
     assert verify_message("1BitcoinEaterAddressDontSendf59kuE", fake, MESSAGE, allow_legacy=False).state is State.INVALID
+
+
+def test_all_requested_engines_run_on_failure(proof, kernel_engines):
+    derived, witness, sig = proof
+    r = verify_message(derived.address, sig, b"some other message", engines=kernel_engines)
+    assert r.state is State.INVALID
+    assert [e.engine for e in r.engines] == ["btclib-required"] + (["kernel"] if "kernel" in kernel_engines else [])
+    assert all(not e.ok for e in r.engines)
+    if "kernel" in kernel_engines:
+        tampered = list(witness)
+        tampered[1] = high_s(tampered[1])
+        r = verify_message(derived.address, encode_simple(tampered), MESSAGE, engines=kernel_engines)
+        assert r.state is State.INVALID and "low-S" in r.reason
+        by_name = {e.engine: e.ok for e in r.engines}
+        assert by_name == {"btclib-required": False, "kernel": True}

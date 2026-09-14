@@ -205,6 +205,13 @@ def verify_message(
     required = btclib_run(prevouts, tx_bytes, BTCLIB_REQUIRED, name="btclib-required")
     result.engines.append(required)
     result.sighash_types = list(required.sighash_types)
+    # every requested engine runs even when the verdict is already known, so the
+    # per-engine report shows *what kind* of failure this is (e.g. consensus-valid
+    # but policy-invalid); the verdict itself never depends on the extra engines
+    # passing where btclib failed
+    consensus = kernel_run(prevouts, tx_bytes) if "kernel" in engines else None
+    if consensus is not None:
+        result.engines.append(consensus)
     if not required.ok:
         result.reason = f"{_explain(required.error)} ({required.error})"
         return result
@@ -212,12 +219,9 @@ def verify_message(
     if bad:
         result.reason = f"signature uses sighash type 0x{bad[0]:02x}; BIP-322 requires SIGHASH_ALL (or DEFAULT for taproot)"
         return result
-    if "kernel" in engines:
-        consensus = kernel_run(prevouts, tx_bytes)
-        result.engines.append(consensus)
-        if not consensus.ok:
-            result.reason = f"Bitcoin Core consensus engine rejected the proof: {consensus.error}"
-            return result
+    if consensus is not None and not consensus.ok:
+        result.reason = f"Bitcoin Core consensus engine rejected the proof: {consensus.error}"
+        return result
 
     # ---- upgradeable rules ------------------------------------------------- #
     if to_sign.version not in (0, 2):
