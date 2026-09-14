@@ -119,7 +119,8 @@ def _address_info(wallet: MultisigWallet, derived) -> dict:
         "hex": derived.witness_script.hex(),
         "sigsrequired": derived.threshold,
         "pubkeys": [pk.hex() for pk in derived.pubkeys],
-        "hdkeypaths": derived.derivation_paths(),
+        # same order as the witness script, so the two lists line up
+        "hdkeypaths": {pk.hex(): derived.derivation_paths()[pk.hex()] for pk in derived.pubkeys},
         "branch": derived.branch,
         "index": derived.index,
         "desc": add_checksum(concrete.to_string()),
