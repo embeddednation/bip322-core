@@ -21,9 +21,16 @@ Three independent things live here:
 
 ```sh
 python3 -m venv .venv            # on Ubuntu without python3-venv: python3 -m venv --without-pip .venv && curl -sL https://bootstrap.pypa.io/get-pip.py | .venv/bin/python
-.venv/bin/pip install -e '.[kernel,dev]'
-.venv/bin/python -m pytest        # 120 tests
+.venv/bin/pip install --require-hashes -r requirements.lock   # exact, hash-pinned runtime dependencies
+.venv/bin/pip install --no-deps -e '.[dev]'
+.venv/bin/python -m pytest        # ~160 tests
 ```
+
+`requirements.lock` pins embit, btclib and py-bitcoinkernel (plus btclib's two
+dependencies) to the exact versions the test suite and reference checks were
+run against, with sha256 hashes. `docs/DESIGN.md` is the reviewer's map: trust
+boundaries, data flow, the exact rule sets, known divergences between
+implementations, exit codes.
 
 Dependencies: [embit](https://github.com/diybitcoinhardware/embit) (descriptors, PSBT, keys),
 [btclib](https://btclib.org) (script interpreter with the policy flags BIP-322 lists),
@@ -38,6 +45,8 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
    it under wallet settings, and Bitcoin Core's `listdescriptors` prints it.
    Check it: `bip322 wallet -w wallet.desc` (policy, cosigners) and
    `bip322 deriveaddresses -w wallet.desc --range 0 5` (compare with Sparrow).
+   The address network follows the key encoding (xpub → mainnet, tpub →
+   testnet); `--network regtest` overrides.
    `bip322 getaddressinfo -w wallet.desc bc1q...` shows how a given address
    is built (branch/index, witness script, pubkeys, key paths), in the shape of
    Bitcoin Core's RPC of the same name.
@@ -85,9 +94,10 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
    Same argument order as Bitcoin Core's RPC (`-a/-s/-m` flags work too).
    Every installed script engine runs by default (btclib, plus Bitcoin Core's
    interpreter through libbitcoinkernel when `py-bitcoinkernel` is installed;
-   `--engines` restricts). Exit code 0 = *valid*, 1 = *invalid* or
-   *inconclusive*; `--json` gives the details (variant, `to_spend`/`to_sign`
-   txids, locktime/sequence, sighash types, per-engine results).
+   `--engines` restricts). Exit codes: 0 *valid*, 1 *invalid*, 3
+   *inconclusive*, 2 error. `--json` gives a self-contained report (tool and
+   spec version, address, message, signature, variant, `to_spend`/`to_sign`
+   txids, locktime/sequence, sighash types, per-engine results with versions).
 
 `bip322 analyzepsbt proof.psbt` applies the BIP's *PSBT signer* detection rules
 and shows the message, address, partial signatures and any problems; it also

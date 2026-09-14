@@ -15,8 +15,8 @@ in input order and the serialized spending transaction.
 from __future__ import annotations
 
 import functools
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Sequence
 
 from .core import BIP322Error
 

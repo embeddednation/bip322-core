@@ -9,6 +9,7 @@ from pathlib import Path
 
 from embit.networks import NETWORKS
 
+from ._version import SPEC, __version__
 from .coldcard import lint_message_for_coldcard
 from .core import BIP322Error, build_to_spend
 from .engines import available_engines, engine_labels, engine_versions
@@ -47,7 +48,7 @@ def _load_wallet(args) -> Wallet:
     descriptor = getattr(args, "descriptor", None) or getattr(args, "global_descriptor", None)
     wallet = getattr(args, "wallet", None) or getattr(args, "global_wallet", None)
     if descriptor:
-        return Wallet.from_descriptor(descriptor, network=_network(args) or "main")
+        return Wallet.from_descriptor(descriptor, network=_network(args))
     if wallet:
         return wallet_from_file(wallet, network=_network(args))
     raise CLIError("provide --wallet FILE (a wsh(sortedmulti(...)) descriptor) or --descriptor")
@@ -191,6 +192,7 @@ def cmd_inspect(args) -> int:
     psbt = _read_psbt(args.psbt)
     info = inspect_psbt(psbt, network=_network(args) or "main")
     out = {
+        "tool": f"bip322 {__version__}",
         "is_bip322": info.is_bip322,
         "problems": info.problems,
         "warnings": info.warnings,
@@ -285,7 +287,11 @@ def cmd_verify(args) -> int:
         }
         for run in result.engines:
             print(f"  [{labels.get(run.engine, run.engine)}] {'ok' if run.ok else 'FAIL: ' + str(run.error)}")
-    return 0 if result.ok else 1
+    return EXIT_BY_STATE[result.state]
+
+
+#: verifymessage exit codes: 0 valid, 1 invalid, 3 inconclusive (2 = usage/IO error)
+EXIT_BY_STATE = {State.VALID: 0, State.INVALID: 1, State.INCONCLUSIVE: 3}
 
 
 def cmd_lint(args) -> int:
@@ -329,7 +335,8 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="bip322", description="BIP-322 message signing: build, finalize and verify proofs (private-key tooling lives in bip322-dev)")
+    parser = argparse.ArgumentParser(prog="bip322", description=f"BIP-322 message signing: build, finalize and verify proofs ({SPEC}; private-key tooling lives in bip322-dev)")
+    parser.add_argument("--version", action="version", version=f"bip322 {__version__} ({SPEC})")
     # wallet options are accepted here (before the subcommand) as well as after it
     parser.add_argument("--wallet", "-w", dest="global_wallet", metavar="FILE", help="file holding the wallet descriptor: wsh(sortedmulti(...)) or wpkh(...)")
     parser.add_argument("--descriptor", "-d", dest="global_descriptor", metavar="DESC", help="descriptor text: wsh(sortedmulti(...)) or wpkh(...)")
@@ -405,6 +412,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-legacy", action="store_true", help="reject legacy BIP-137 signatures")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_verify)
+    p.epilog = "exit codes: 0 valid, 1 invalid, 3 inconclusive, 2 error"
 
     p = sub.add_parser("lint-message", help="check a message against Coldcard's display rules")
     _add_message_args(p)

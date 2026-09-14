@@ -13,9 +13,9 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Iterable, Sequence
 
 from embit import compact
 from embit.script import Script, Witness

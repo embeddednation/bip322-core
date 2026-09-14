@@ -9,7 +9,6 @@ form Sparrow, Coldcard and Bitcoin Core all export).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from io import BytesIO
 
 from embit.bip32 import HDKey
 from embit.descriptor import Descriptor
@@ -121,8 +120,9 @@ class Wallet:
     ``"p2wpkh"`` for ``wpkh(...)``.
     """
 
-    def __init__(self, descriptor: Descriptor, network: str = "main", name: str | None = None):
-        if network not in NETWORKS:
+    def __init__(self, descriptor: Descriptor, network: str | None = None, name: str | None = None):
+        """``network`` selects the address encoding; ``None`` infers main/test from the xpub versions."""
+        if network is not None and network not in NETWORKS:
             raise WalletError(f"unknown network {network!r}; expected one of {sorted(NETWORKS)}")
         if descriptor.sh or descriptor.taproot:
             raise WalletError("only native segwit descriptors are supported: wsh(multi/sortedmulti(...)) or wpkh(...)")
@@ -158,6 +158,8 @@ class Wallet:
             if xpub in seen:
                 raise WalletError("the same xpub appears more than once in the descriptor")
             seen.add(xpub)
+        if network is None:
+            network = _network_from_keys(cosigners)
         self.descriptor = descriptor.to_public()
         self.network = network
         self.name = name
@@ -177,7 +179,7 @@ class Wallet:
     # ---- constructors ----------------------------------------------------- #
 
     @classmethod
-    def from_descriptor(cls, text: str, network: str = "main", name: str | None = None) -> "Wallet":
+    def from_descriptor(cls, text: str, network: str | None = None, name: str | None = None) -> Wallet:
         text = text.strip()
         if "#" in text:
             body, _, checksum = text.partition("#")
@@ -255,16 +257,14 @@ class Wallet:
         return None
 
     def global_xpubs(self) -> dict[HDKey, DerivationPath]:
-        """``PSBT_GLOBAL_XPUB`` entries for the cosigners."""
+        """``PSBT_GLOBAL_XPUB`` entries for the cosigners, in this wallet's network encoding."""
         return {
-            c.xpub: DerivationPath(c.fingerprint, list(c.origin_path)) for c in self.cosigners
+            _with_version(c.xpub, NETWORKS[self.network]["xpub"]): DerivationPath(c.fingerprint, list(c.origin_path))
+            for c in self.cosigners
         }
 
     def describe(self) -> dict:
-        if self.is_multisig:
-            script = "wsh(sortedmulti)" if self.sorted else "wsh(multi)"
-        else:
-            script = "wpkh"
+        script = ("wsh(sortedmulti)" if self.sorted else "wsh(multi)") if self.is_multisig else "wpkh"
         return {
             "name": self.name,
             "network": self.network,
@@ -283,11 +283,39 @@ class Wallet:
 MultisigWallet = Wallet
 
 
+def _with_version(xpub: HDKey, version: bytes) -> HDKey:
+    """The same extended public key re-encoded with ``version`` bytes."""
+    if xpub.version == version:
+        return xpub
+    return HDKey(xpub.key, xpub.chain_code, version=version, depth=xpub.depth, fingerprint=xpub.fingerprint, child_number=xpub.child_number)
+
+
+def _network_from_keys(cosigners: list[Cosigner]) -> str:
+    """``main`` for xpub-encoded keys, ``test`` for tpub; mixed encodings are refused."""
+    found: set[str] = set()
+    for c in cosigners:
+        for net_name in ("main", "test"):
+            net = NETWORKS[net_name]
+            if c.xpub.version in (net["xpub"], net.get("ypub"), net.get("zpub"), net.get("Ypub"), net.get("Zpub")):
+                found.add(net_name)
+                break
+        else:
+            found.add("?")
+    if found == {"test"}:
+        return "test"
+    if len(found) > 1:
+        raise WalletError("keys use mixed mainnet/testnet encodings; pass --network explicitly")
+    return "main"
+
+
 def wallet_from_file(path: str, network: str | None = None) -> Wallet:
-    """Load a wallet from a file holding a descriptor (comment lines starting with # are ignored)."""
-    with open(path, "r", encoding="utf-8") as fh:
+    """Load a wallet from a file holding a descriptor (comment lines starting with # are ignored).
+
+    Without ``network`` the address encoding follows the key versions (xpub = main, tpub = test).
+    """
+    with open(path, encoding="utf-8") as fh:
         lines = [ln.strip() for ln in fh.read().splitlines()]
     lines = [ln for ln in lines if ln and not ln.startswith("#")]
     if len(lines) != 1:
         raise WalletError(f"{path}: expected exactly one descriptor line, found {len(lines)}")
-    return Wallet.from_descriptor(lines[0], network=network or "main")
+    return Wallet.from_descriptor(lines[0], network=network)

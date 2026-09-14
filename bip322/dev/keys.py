@@ -45,7 +45,7 @@ def cosigner_from_text(text: str) -> Cosigner:
     """
     text = text.strip()
     if os.path.isfile(text):
-        with open(text, "r", encoding="utf-8") as fh:
+        with open(text, encoding="utf-8") as fh:
             content = fh.read().strip()
         if content.startswith("{"):
             data = json.loads(content)

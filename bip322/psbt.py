@@ -17,8 +17,8 @@ from __future__ import annotations
 import copy
 import hashlib
 from collections import OrderedDict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Sequence
 
 from embit import ec
 from embit.finalizer import parse_multisig
@@ -29,7 +29,6 @@ from embit.script import Script, Witness
 from embit.transaction import SIGHASH, Transaction, TransactionInput, TransactionOutput
 
 from .core import (
-    OP_RETURN_SCRIPT,
     PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE,
     SIGHASH_ALL,
     BIP322Error,
@@ -240,10 +239,12 @@ def inspect_psbt(psbt: BIP322PSBT, network: str = "main") -> PSBTInfo:
     if inp.sighash_type not in (None, SIGHASH_ALL):
         info.problems.append(f"input 0 requests sighash type 0x{inp.sighash_type:02x}; BIP-322 requires SIGHASH_ALL")
     spk_type = Script(spk).script_type() if spk is not None else None
-    if spk_type == "p2wsh" and inp.witness_script is None:
-        info.warnings.append("no witness_script for the P2WSH input (hardware signers need it)")
-    if spk is not None and not inp.bip32_derivations and not inp.final_scriptwitness:
-        info.warnings.append("no BIP32 derivation paths (hardware signers need them to find their key)")
+    already_final = bool(inp.final_scriptwitness) or bool(inp.final_scriptsig)
+    if not already_final:  # the finalizer removes these on purpose
+        if spk_type == "p2wsh" and inp.witness_script is None:
+            info.warnings.append("no witness_script for the P2WSH input (hardware signers need it)")
+        if spk is not None and not inp.bip32_derivations:
+            info.warnings.append("no BIP32 derivation paths (hardware signers need them to find their key)")
     if inp.witness_script is not None:
         info.witness_script = inp.witness_script.data
         try:
@@ -279,10 +280,10 @@ def combine_psbts(psbts: Sequence[BIP322PSBT]) -> BIP322PSBT:
             raise PSBTBuildError("PSBTs sign different transactions and cannot be combined")
         if other.message != base.message:
             raise PSBTBuildError("PSBTs carry different messages and cannot be combined")
-        for index, (mine, theirs) in enumerate(zip(base.inputs, other.inputs)):
+        for index, (mine, theirs) in enumerate(zip(base.inputs, other.inputs, strict=True)):
             _check_mergeable(index, mine, theirs)
             mine.update(theirs)
-        for mine, theirs in zip(base.outputs, other.outputs):
+        for mine, theirs in zip(base.outputs, other.outputs, strict=True):
             mine.update(theirs)
         base.xpubs.update(other.xpubs)
         for key, value in other.unknown.items():

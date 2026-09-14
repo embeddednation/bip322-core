@@ -14,6 +14,7 @@ cli       The ``bip322`` command
 private keys: dummy cosigner generation, wallet assembly and software signing.
 """
 
+from ._version import SPEC, __version__
 from .core import (
     PREFIX_FULL,
     PREFIX_POF,
@@ -30,6 +31,8 @@ from .core import (
 from .verify import State, VerifyResult, verify_message
 
 __all__ = [
+    "SPEC",
+    "__version__",
     "PREFIX_FULL",
     "PREFIX_POF",
     "PREFIX_SIMPLE",

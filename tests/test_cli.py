@@ -137,8 +137,9 @@ def test_cli_deriveaddresses_and_getaddressinfo(tmp_path, wallet, capsys):
     assert info["sigsrequired"] == 2 and info["pubkeys"] == [pk.hex() for pk in target.pubkeys]
     assert info["witness_program"] == target.script_pubkey[2:].hex() and info["script"] == "multisig"
     assert list(info["hdkeypaths"]) == info["pubkeys"] and all(v.endswith(":m/48h/0h/0h/2h/1/4") for v in info["hdkeypaths"].values())
-    from bip322.wallet import MultisigWallet
     from embit.descriptor import Descriptor
+
+    from bip322.wallet import MultisigWallet
 
     concrete = Descriptor.from_string(info["desc"].split("#")[0])
     assert concrete.address() == target.address

@@ -1,6 +1,7 @@
 """Checks added by the code review: canonical encodings, strict DER, PSBT field
 consistency, engine selection errors, fail-closed engines, and CLI edge cases."""
 
+
 import json
 
 import pytest
@@ -11,7 +12,6 @@ from bip322.core import (
     SignatureFormatError,
     build_to_sign,
     build_to_spend,
-    encode_full,
     encode_pof,
     encode_simple,
     is_native_segwit,
@@ -19,8 +19,7 @@ from bip322.core import (
     parse_witness,
     serialize_witness,
 )
-from bip322.dev.signing import sign_psbt
-from bip322.engines import EngineError, btclib_run, BTCLIB_REQUIRED
+from bip322.engines import BTCLIB_REQUIRED, EngineError, btclib_run
 from bip322.psbt import (
     BIP322PSBT,
     FinalizeError,
@@ -256,3 +255,90 @@ def test_cli_strict_coldcard_writes_nothing_and_missing_files_are_clean_errors(t
     assert err.startswith("error:") and "missing.psbt" in err and "Traceback" not in err
     assert main(["-w", str(tmp_path / "nope.desc"), "deriveaddresses"]) == 2
     assert "nope.desc" in capsys.readouterr().err
+
+
+# ---- second pass ------------------------------------------------------------ #
+
+
+def test_network_is_inferred_from_key_versions(masters, wallet):
+    from embit.networks import NETWORKS
+
+    from tests.conftest import ORIGIN_PATH
+
+    tpubs = []
+    for m in masters:
+        account = m.derive("m/" + ORIGIN_PATH).to_public()
+        tpubs.append(f"[{m.my_fingerprint.hex()}/{ORIGIN_PATH}]{account.to_base58(NETWORKS['test']['xpub'])}/<0;1>/*")
+    test_wallet = Wallet.from_descriptor("wsh(sortedmulti(2," + ",".join(tpubs) + "))")
+    assert test_wallet.network == "test" and test_wallet.derive(0).address.startswith("tb1q")
+    assert test_wallet.derive(0).script_pubkey == wallet.derive(0).script_pubkey  # same keys, same script
+    assert Wallet.from_descriptor(test_wallet.to_descriptor(), network="regtest").derive(0).address.startswith("bcrt1q")
+    assert Wallet.from_descriptor(wallet.to_descriptor()).network == "main"
+    mixed = "wsh(sortedmulti(2," + ",".join([tpubs[0], *[k for k in wallet.to_descriptor().split("#")[0][18:-2].split(",")[1:]]]) + "))"
+    with pytest.raises(WalletError, match="mixed"):
+        Wallet.from_descriptor(mixed)
+
+
+def test_global_xpubs_follow_the_wallet_network(wallet):
+    from embit.networks import NETWORKS
+
+    regtest = Wallet.from_descriptor(wallet.to_descriptor(), network="regtest")
+    versions = {xpub.version for xpub in regtest.global_xpubs()}
+    assert versions == {NETWORKS["regtest"]["xpub"]}
+    assert {xpub.version for xpub in wallet.global_xpubs()} == {NETWORKS["main"]["xpub"]}
+    psbt = create_psbt(regtest.derive(0), MESSAGE, xpubs=regtest.global_xpubs())
+    again = parse_psbt(psbt.to_string())
+    assert {x.version for x in again.xpubs} == {NETWORKS["regtest"]["xpub"]}
+    # the keys are the same keys regardless of encoding
+    assert {x.key.sec() for x in again.xpubs} == {x.key.sec() for x in wallet.global_xpubs()}
+
+
+def test_pof_with_duplicate_inputs_is_invalid(wallet, signer_expressions):
+    derived = wallet.derive(6)
+    good = finalized_psbt(wallet, signer_expressions[:2], MESSAGE, index=6)
+    witness = list(good.inputs[0].final_scriptwitness.items)
+    to_spend = build_to_spend(MESSAGE, derived.script_pubkey)
+    dup_in = build_to_sign(to_spend.txid(), witness=witness).vin[0]
+    tx = build_to_sign(to_spend.txid(), witness=witness, extra_inputs=[dup_in])
+    psbt = BIP322PSBT(tx)
+    for inp in psbt.inputs:
+        inp.witness_utxo = TransactionOutput(0, Script(derived.script_pubkey))
+        inp.final_scriptwitness = good.inputs[0].final_scriptwitness
+    r = verify_message(derived.address, encode_pof(psbt.serialize()), MESSAGE)
+    assert r.state is State.INVALID and "more than once" in r.reason
+
+
+def test_verify_report_is_self_contained(proof, kernel_engines):
+    from bip322 import SPEC, __version__
+
+    derived, _, psbt = proof
+    sig = signature_from_psbt(psbt)
+    report = verify_message(derived.address, sig, MESSAGE, engines=kernel_engines).to_dict()
+    assert report["tool"] == f"bip322 {__version__}" and report["spec"] == SPEC
+    assert report["message_utf8"] == MESSAGE.decode() and report["message_hex"] == MESSAGE.hex()
+    assert report["signature"] == sig and report["address"] == derived.address and report["state"] == "valid"
+
+
+def test_analyzepsbt_finalized_has_no_signer_warnings(proof):
+    _, _, psbt = proof
+    info = inspect_psbt(psbt)
+    assert info.is_bip322 and info.finalized and info.warnings == []
+
+
+def test_cli_version_and_exit_codes(tmp_path, wallet, signer_expressions, capsys):
+    from bip322 import __version__
+    from bip322.cli import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0 and __version__ in capsys.readouterr().out
+    address = wallet.derive(6).address
+    valid = signature_from_psbt(finalized_psbt(wallet, signer_expressions[:2], MESSAGE, index=6))
+    inconclusive = signature_from_psbt(finalized_psbt(wallet, signer_expressions[:2], MESSAGE, index=6, version=1), "ful")
+    assert main(["verifymessage", address, valid, MESSAGE.decode()]) == 0
+    assert main(["verifymessage", address, valid, MESSAGE.decode() + "!"]) == 1
+    assert main(["verifymessage", address, inconclusive, MESSAGE.decode()]) == 3
+    assert "INCONCLUSIVE" in capsys.readouterr().out
+    assert main(["verifymessage", address, "smp!!", MESSAGE.decode(), "--json"]) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["tool"].startswith("bip322 ") and out["signature"] == "smp!!" and out["state"] == "invalid"

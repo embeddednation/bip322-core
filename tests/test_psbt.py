@@ -3,10 +3,9 @@ import itertools
 import pytest
 from embit.finalizer import finalize_psbt as embit_finalize
 
-from bip322.core import PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE, build_to_spend, encode_simple
+from bip322.core import PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE, build_to_spend
 from bip322.dev.signing import sign_psbt
 from bip322.psbt import (
-    BIP322PSBT,
     FinalizeError,
     choose_variant,
     combine_psbts,

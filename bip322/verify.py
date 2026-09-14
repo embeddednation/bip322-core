@@ -7,9 +7,9 @@ engines in :mod:`bip322.engines`.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Sequence
 
 from embit.script import Script, address_to_scriptpubkey
 from embit.transaction import Transaction
@@ -21,6 +21,7 @@ from .core import (
     SIGHASH_ALL,
     SIGHASH_DEFAULT,
     VARIANT_LEGACY,
+    BIP322Error,
     SignatureFormatError,
     build_to_sign,
     build_to_spend,
@@ -30,7 +31,6 @@ from .core import (
     parse_transaction,
     parse_witness,
 )
-from .core import BIP322Error
 from .engines import BTCLIB_REQUIRED, BTCLIB_UPGRADEABLE, EngineRun, btclib_run, check_engines, kernel_run
 from .psbt import extract_tx, is_finalized, parse_psbt, psbt_prevouts
 
@@ -47,6 +47,8 @@ class VerifyResult:
     reason: str
     address: str = ""
     variant: str | None = None
+    message: bytes = b""
+    signature: str = ""
     to_spend_txid: str | None = None
     to_sign_txid: str | None = None
     locktime: int | None = None
@@ -61,10 +63,18 @@ class VerifyResult:
         return self.state is State.VALID
 
     def to_dict(self) -> dict:
+        """A self-contained report: what was checked, by which tool, with which outcome."""
+        from ._version import SPEC, __version__
+
         return {
+            "tool": f"bip322 {__version__}",
+            "spec": SPEC,
             "state": self.state.value,
             "reason": self.reason,
             "address": self.address,
+            "message_utf8": self.message.decode("utf-8", errors="replace"),
+            "message_hex": self.message.hex(),
+            "signature": self.signature,
             "variant": self.variant,
             "to_spend_txid": self.to_spend_txid,
             "to_sign_txid": self.to_sign_txid,
@@ -138,21 +148,25 @@ def verify_message(
     if isinstance(message, str):
         raise TypeError("message must be bytes; encode text as UTF-8")
     check_engines(engines)
+    message = bytes(message)
+    signature = signature.strip()
     try:
         spk = script_pubkey_from_address(address)
         decoded = decode_signature(signature, allow_unprefixed=allow_unprefixed)
     except SignatureFormatError as exc:
-        return VerifyResult(State.INVALID, str(exc), address)
+        return VerifyResult(State.INVALID, str(exc), address, message=message, signature=signature)
 
     if decoded.variant == VARIANT_LEGACY:
         if not allow_legacy:
-            return VerifyResult(State.INVALID, "legacy signatures are not accepted", address, VARIANT_LEGACY)
-        return _legacy(address, spk, signature, message)
+            return VerifyResult(State.INVALID, "legacy signatures are not accepted", address, VARIANT_LEGACY, message=message, signature=signature)
+        result = _legacy(address, spk, signature, message)
+        result.message, result.signature = message, signature
+        return result
 
     to_spend = build_to_spend(message, spk)
     to_spend_txid = to_spend.txid()
     prevouts: list[tuple[int, bytes]] = [(0, spk)]
-    result = VerifyResult(State.INVALID, "", address, decoded.variant, to_spend_txid=to_spend_txid.hex())
+    result = VerifyResult(State.INVALID, "", address, decoded.variant, message=message, signature=signature, to_spend_txid=to_spend_txid.hex())
 
     try:
         if decoded.variant == PREFIX_SIMPLE:
@@ -209,6 +223,10 @@ def verify_message(
     if len(prevouts) != len(to_sign.vin):
         result.reason = "missing spent-output data for additional inputs"
         return result
+    outpoints = [(vin.txid, vin.vout) for vin in to_sign.vin]
+    if len(set(outpoints)) != len(outpoints):
+        result.reason = "to_sign spends the same output more than once"
+        return result
 
     # ---- required rules ---------------------------------------------------- #
     tx_bytes = to_sign.serialize()
@@ -246,10 +264,12 @@ def verify_message(
         return result
 
     result.state = State.VALID
+    notes = []
     if to_sign.locktime or to_sign.vin[0].sequence:
-        result.reason = f"valid at time {to_sign.locktime} and age {to_sign.vin[0].sequence}"
-    else:
-        result.reason = "valid"
+        notes.append(f"at time {to_sign.locktime} and age {to_sign.vin[0].sequence}")
+    if result.extra_inputs:
+        notes.append(f"{result.extra_inputs} additional input(s) signed; their existence in the UTXO set was not checked")
+    result.reason = "valid" + (" " + "; ".join(notes) if notes else "")
     return result
 
 

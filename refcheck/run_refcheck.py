@@ -25,17 +25,16 @@ import argparse
 import json
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from bip322.core import build_to_spend, encode_full, encode_simple, parse_transaction  # noqa: E402
-from bip322.engines import available_engines  # noqa: E402
 from bip322.dev.signing import sign_psbt  # noqa: E402
+from bip322.engines import available_engines  # noqa: E402
 from bip322.psbt import extract_tx, finalize_psbt, parse_psbt  # noqa: E402
-from bip322.verify import State, verify_message  # noqa: E402
+from bip322.verify import verify_message  # noqa: E402
 from refcheck.corpus import Case, Fixture, build_corpus  # noqa: E402
 from refcheck.daemons import Daemon, RPCError  # noqa: E402
 

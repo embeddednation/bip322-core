@@ -38,7 +38,7 @@ def test_derivation_is_sorted_and_complete(wallet):
     assert d.threshold == 2 and len(d.pubkeys) == 3
     assert list(d.pubkeys) == sorted(d.pubkeys)  # BIP-67
     assert set(d.pubkeys) == set(d.derivations)
-    for sec, (fp, path) in d.derivations.items():
+    for fp, path in d.derivations.values():
         assert len(fp) == 4 and path[-2:] == (0, 3) and path[:4] == (0x80000030, 0x80000000, 0x80000000, 0x80000002)
     change = wallet.derive(3, branch=1)
     assert change.address != d.address

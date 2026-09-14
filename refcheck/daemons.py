@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import shutil
 import subprocess
@@ -35,7 +36,7 @@ class Daemon:
         out = subprocess.run([str(self.bitcoind), "--version"], capture_output=True, text=True, check=False)
         return out.stdout.splitlines()[0] if out.stdout else out.stderr.strip()
 
-    def start(self, timeout: float = 90.0) -> "Daemon":
+    def start(self, timeout: float = 90.0) -> Daemon:
         if self.datadir.exists():
             shutil.rmtree(self.datadir)
         self.datadir.mkdir(parents=True)
@@ -74,10 +75,8 @@ class Daemon:
     def stop(self) -> None:
         if self.proc is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             self.rpc("stop")
-        except Exception:  # noqa: BLE001
-            pass
         try:
             self.proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
@@ -85,7 +84,7 @@ class Daemon:
             self.proc.wait()
         self.proc = None
 
-    def __enter__(self) -> "Daemon":
+    def __enter__(self) -> Daemon:
         return self.start()
 
     def __exit__(self, *exc) -> None:
