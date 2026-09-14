@@ -58,7 +58,7 @@ if $CLI verifymessage -a "$ADDR2" -m "$MSG" -s "$SIG"; then echo "UNEXPECTED"; e
 if $CLI finalizepsbt "$WORK/proof-A.psbt" 2>"$WORK/finalize-A.err"; then echo "UNEXPECTED"; exit 1; else cat "$WORK/finalize-A.err"; fi
 
 step "10. independent verification: btclib, btcd reference, Bitcoin Knots, Bitcoin Core"
-run $PY -m refcheck.verify_one -a "$ADDR" -m "$MSG" --signature-file "$WORK/proof.sig"
+run .venv/bin/bip322-refcheck -a "$ADDR" -m "$MSG" --signature-file "$WORK/proof.sig"
 
 step "done - artifacts in $WORK"
 ls -1 "$WORK"

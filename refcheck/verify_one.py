@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Check ONE BIP-322 signature against every available reference implementation.
 
-    .venv/bin/python -m refcheck.verify_one -a bc1q... -m "message" -s smp...
+    bip322-refcheck -a bc1q... -m "message" -s smp...
+    bip322-refcheck corpus            # the 46-case corpus run (refcheck/run_refcheck.py)
 
 Verifiers: ours (btclib + kernel), btclib's own BIP-322 module, the btcd
 reference package (refcheck/btcd/btcd-bip322), Bitcoin Knots `verifymessage`
@@ -139,7 +140,12 @@ def check_core(address: str, message: bytes, signature: str) -> tuple[str, str]:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["corpus"]:
+        from refcheck.run_refcheck import main as corpus_main
+
+        return corpus_main(argv[1:])
+    parser = argparse.ArgumentParser(prog="bip322-refcheck", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--address", "-a", required=True)
     g = parser.add_mutually_exclusive_group(required=True)
     g.add_argument("--message", "-m")
