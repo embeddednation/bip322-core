@@ -26,7 +26,7 @@ def test_cli_roundtrip(tmp_path, wallet, signer_expressions, capsys):
     assert main(["finalizepsbt", str(combined), "--signature-file", str(sig_file), "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
     signature = sig_file.read_text().strip()
-    assert out["signature"] == signature and signature.startswith("smp") and out["self_verification"]["state"] == "valid"
+    assert out["signature"] == signature and signature.startswith("smp") and "self_verification" not in out
     assert main(["verifymessage", "-a", address, "-s", signature, "-m", MESSAGE]) == 0
     assert "VALID" in capsys.readouterr().out
     assert main(["verifymessage", "-a", address, "-s", signature, "-m", MESSAGE + "!"]) == 1

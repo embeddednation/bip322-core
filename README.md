@@ -65,22 +65,26 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
 
    ```sh
    bip322ms combinepsbt proof-ccA.psbt proof-ccB.psbt -o proof-combined.psbt
-   bip322ms finalizepsbt proof-combined.psbt --engines btclib,kernel --signature-file proof.sig
+   bip322ms finalizepsbt proof-combined.psbt --signature-file proof.sig
    ```
 
-   `finalizepsbt` checks every partial signature (DER, low-S, SIGHASH_ALL, verifies
-   against the sighash), builds the witness in script order, self-verifies the
-   result and prints `smp...`. Use `--variant ful` to force the full encoding.
+   `finalizepsbt` is the BIP-174 finalizer: it checks every partial signature
+   (DER, low-S, SIGHASH_ALL, verifies against the sighash), builds the witness
+   in script order and prints `smp...`. Use `--variant ful` to force the full
+   encoding. It does not verify the proof; that is `verifymessage`'s job.
 
 5. **Verify** (anyone, anywhere):
 
    ```sh
-   bip322ms verifymessage -a bc1q... -m "Proof of control, 2026-09-11" -s smp... --engines btclib,kernel
+   bip322ms verifymessage bc1q... smp... "Proof of control, 2026-09-11"
    ```
 
-   Exit code 0 = *valid*, 1 = *invalid* or *inconclusive*; `--json` gives the
-   details (variant, `to_spend`/`to_sign` txids, locktime/sequence, sighash
-   types, per-engine results).
+   Same argument order as Bitcoin Core's RPC (`-a/-s/-m` flags work too).
+   Every installed script engine runs by default (btclib, plus Bitcoin Core's
+   interpreter through libbitcoinkernel when `py-bitcoinkernel` is installed;
+   `--engines` restricts). Exit code 0 = *valid*, 1 = *invalid* or
+   *inconclusive*; `--json` gives the details (variant, `to_spend`/`to_sign`
+   txids, locktime/sequence, sighash types, per-engine results).
 
 `bip322ms analyzepsbt proof.psbt` applies the BIP's *PSBT signer* detection rules
 and shows the message, address, partial signatures and any problems.
@@ -105,8 +109,8 @@ bip322ms getaddressinfo -w wallet.desc bc1q...               # see how it is bui
 bip322ms createpsbt -w wallet.desc -a bc1q... -m "demo proof" --strict-coldcard -o proof.psbt
 bip322ms signpsbt proof.psbt   -k cosigner-A.json -o proof-A.psbt   # "Coldcard A"
 bip322ms signpsbt proof-A.psbt -k cosigner-B.json -o proof-AB.psbt  # "Coldcard B" (or sign proof.psbt separately and `combinepsbt`)
-bip322ms finalizepsbt proof-AB.psbt --engines btclib,kernel --signature-file proof.sig
-bip322ms verifymessage -a bc1q... -m "demo proof" --signature-file proof.sig --engines btclib,kernel
+bip322ms finalizepsbt proof-AB.psbt --signature-file proof.sig
+bip322ms verifymessage bc1q... "$(cat proof.sig)" "demo proof"
 ```
 
 `makewallet` accepts keygen JSON files and `[fp/path]xpub` expressions in any

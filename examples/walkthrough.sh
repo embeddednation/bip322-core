@@ -41,13 +41,13 @@ echo "partial signatures in proof-A.psbt:"; $CLI analyzepsbt "$WORK/proof-A.psbt
 step "6. combine the two signed PSBTs"
 run $CLI combinepsbt "$WORK/proof-A.psbt" "$WORK/proof-C.psbt" -o "$WORK/proof-AC.psbt"
 
-step "7. finalize: check partial sigs, build the witness, self-verify, encode as smp"
-run $CLI finalizepsbt "$WORK/proof-AC.psbt" --engines btclib,kernel --signature-file "$WORK/proof.sig" --json > "$WORK/finalize.json"
-$PY -c "import json;d=json.load(open('$WORK/finalize.json'));d['self_verification'].pop('engines');print(json.dumps(d,indent=2))"
+step "7. finalize: check the partial signatures, build the witness, encode as smp"
+run $CLI finalizepsbt "$WORK/proof-AC.psbt" --signature-file "$WORK/proof.sig" --json > "$WORK/finalize.json"
+cat "$WORK/finalize.json"
 SIG=$(cat "$WORK/proof.sig")
 
-step "8. verify with the tool (btclib policy engine + Bitcoin Core kernel engine)"
-run $CLI verifymessage -a "$ADDR" -m "$MSG" -s "$SIG" --engines btclib,kernel
+step "8. verify with the tool (every installed engine: btclib policy engine + Bitcoin Core kernel engine)"
+run $CLI verifymessage "$ADDR" "$SIG" "$MSG"
 
 step "9. negative checks: wrong message, wrong address, one signature only"
 if $CLI verifymessage -a "$ADDR" -m "$MSG (tampered)" -s "$SIG"; then echo "UNEXPECTED"; exit 1; fi

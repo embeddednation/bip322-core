@@ -257,35 +257,32 @@ def cmd_combine(args) -> int:
 
 
 def cmd_finalize(args) -> int:
+    """BIP-174 input finalizer: check each partial signature, assemble the witness, encode.
+
+    Verification of the resulting proof is verifymessage's job, not this command's.
+    """
     psbt = _read_psbt(args.psbt)
     info = inspect_psbt(psbt, network=_network(args) or "main")
     if not info.is_bip322:
         raise CLIError("not a well-formed BIP-322 PSBT: " + "; ".join(info.problems))
-    message = info.message
-    address = info.address
     if not info.finalized:
         finalize_psbt(psbt, strict=not args.lenient)
     signature = signature_from_psbt(psbt, args.variant)
-    result = verify_message(address, signature, message, engines=args.engines.split(","))
-    if not result.ok and not args.no_verify:
-        raise CLIError(f"finalized proof failed self-verification ({result.state.value}): {result.reason}")
     if args.output_psbt:
         _write_psbt(psbt, args.output_psbt, binary=args.binary)
+    if args.signature_file:
+        Path(args.signature_file).write_text(signature + "\n")
     out = {
-        "address": address,
-        "message_utf8": message.decode("utf-8", errors="replace"),
+        "address": info.address,
+        "message_utf8": info.message.decode("utf-8", errors="replace"),
         "variant": signature[:3],
         "signature": signature,
         "to_sign_hex": extract_tx(psbt).serialize().hex(),
-        "self_verification": result.to_dict(),
     }
     if args.json:
         print(json.dumps(out, indent=2))
     else:
         print(signature)
-        print(json.dumps({k: v for k, v in out.items() if k != "signature"}, indent=2), file=sys.stderr)
-    if args.signature_file:
-        Path(args.signature_file).write_text(signature + "\n")
     return 0
 
 
@@ -301,11 +298,12 @@ def cmd_verify(args) -> int:
         signature = Path(args.signature_file).read_text().strip()
     if signature is None:
         raise CLIError("provide a signature (positional, --signature or --signature-file)")
+    engines = args.engines.split(",") if args.engines else available_engines()
     result = verify_message(
         address,
         signature,
         message,
-        engines=args.engines.split(","),
+        engines=engines,
         allow_unprefixed=not args.require_prefix,
         allow_legacy=not args.no_legacy,
     )
@@ -458,13 +456,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_output_args(p)
     p.set_defaults(func=cmd_combine)
 
-    p = sub.add_parser("finalizepsbt", help="finalize a signed PSBT and print the BIP-322 signature")
+    p = sub.add_parser("finalizepsbt", help="finalize a signed PSBT into the BIP-322 signature string")
     p.add_argument("psbt")
     p.add_argument("--variant", choices=["auto", "smp", "ful", "pof"], default="auto")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
-    p.add_argument("--engines", default="btclib", help="comma separated engines for self-verification (btclib,kernel)")
     p.add_argument("--lenient", action="store_true", help="skip invalid partial signatures instead of failing")
-    p.add_argument("--no-verify", action="store_true", help="print the signature even if self-verification fails")
     p.add_argument("--output-psbt", help="also write the finalized PSBT")
     p.add_argument("--signature-file", help="write the signature to this file")
     p.add_argument("--binary", action="store_true")
@@ -480,7 +476,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--signature", "-s")
     g.add_argument("--signature-file")
     _add_message_args(p)
-    p.add_argument("--engines", default="btclib", help="comma separated engines (btclib,kernel)")
+    p.add_argument("--engines", default=None, help="comma separated script engines to run (default: all installed, see `engines`)")
     p.add_argument("--require-prefix", action="store_true", help="reject signatures without smp/ful/pof prefix")
     p.add_argument("--no-legacy", action="store_true", help="reject legacy BIP-137 signatures")
     p.add_argument("--json", action="store_true")
