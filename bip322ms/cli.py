@@ -308,7 +308,9 @@ def cmd_verify(args) -> int:
         allow_legacy=not args.no_legacy,
     )
     if args.json:
-        print(json.dumps(result.to_dict(), indent=2))
+        out = result.to_dict()
+        out["engine_versions"] = engine_versions()
+        print(json.dumps(out, indent=2))
     else:
         state = result.state.value.upper()
         if result.state is State.VALID:

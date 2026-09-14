@@ -32,7 +32,8 @@ def test_cli_roundtrip(tmp_path, wallet, signer_expressions, capsys):
     assert main(["verifymessage", "-a", address, "-s", signature, "-m", MESSAGE + "!"]) == 1
     assert "INVALID" in capsys.readouterr().out
     assert main(["verifymessage", "-a", address, "-s", signature, "-m", MESSAGE, "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["state"] == "valid"
+    out = json.loads(capsys.readouterr().out)
+    assert out["state"] == "valid" and out["engine_versions"]["btclib"].startswith("btclib ")
 
 
 def test_cli_rejects_one_signature(tmp_path, wallet, descriptor_text, signer_expressions, capsys):
