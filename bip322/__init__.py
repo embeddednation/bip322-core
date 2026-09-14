@@ -1,14 +1,17 @@
-"""bip322: BIP-322 message signing for P2WSH multisig quorums.
+"""bip322: BIP-322 message signing for P2WSH multisig quorums and P2WPKH wallets.
 
-Modules
--------
-core     BIP-322 framing (message hash, to_spend / to_sign, smp/ful/pof encodings)
-engines  Script interpreters used for verification (btclib, optional libbitcoinkernel)
-wallet   Multisig descriptor / Coldcard config handling and address derivation
-psbt     BIP-322 PSBT creation, signing (software keys), combining, finalizing
-verify   The verifier (valid / invalid / inconclusive)
-coldcard Coldcard-specific message lint
-cli      Command line interface
+Modules (no private key passes through any of them)
+----------------------------------------------------
+core      BIP-322 framing (message hash, to_spend / to_sign, smp/ful/pof encodings)
+engines   Script interpreters used for verification (btclib, optional libbitcoinkernel)
+wallet    Output-descriptor wallets and address derivation
+psbt      BIP-322 PSBT creation, inspection, combining, finalizing
+verify    The verifier (valid / invalid / inconclusive)
+coldcard  Coldcard-specific message lint
+cli       The ``bip322`` command
+
+``bip322.dev`` (command ``bip322-dev``) holds the scaffolding that does handle
+private keys: dummy cosigner generation, wallet assembly and software signing.
 """
 
 from .core import (

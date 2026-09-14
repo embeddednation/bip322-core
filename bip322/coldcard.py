@@ -1,8 +1,11 @@
-"""Coldcard-specific checks.
+"""Coldcard-specific message lint.
 
 Coldcard (firmware 5.5.1 / 1.4.1Q and later) signs BIP-322 PSBTs as a
-"PSBT signer".  Its message rules, taken from ``docs/proof-of-reserves-bip-322.md``
-and ``shared/msgsign.py`` in the firmware repository, are stricter than the BIP:
+"PSBT signer".  BIP-322 allows any byte string as the message; the device is
+stricter, and the rules below are taken from ``docs/proof-of-reserves-bip-322.md``
+and ``shared/msgsign.py`` in the firmware repository: 2 to 330 printable ASCII
+characters, newline and tab allowed, no leading or trailing space, no run of
+three spaces.
 """
 
 from __future__ import annotations

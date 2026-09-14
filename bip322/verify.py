@@ -30,8 +30,9 @@ from .core import (
     parse_transaction,
     parse_witness,
 )
-from .engines import BTCLIB_REQUIRED, BTCLIB_UPGRADEABLE, EngineRun, btclib_run, kernel_run
-from .psbt import PSBTBuildError, extract_tx, is_finalized, parse_psbt, psbt_prevouts
+from .core import BIP322Error
+from .engines import BTCLIB_REQUIRED, BTCLIB_UPGRADEABLE, EngineRun, btclib_run, check_engines, kernel_run
+from .psbt import extract_tx, is_finalized, parse_psbt, psbt_prevouts
 
 
 class State(str, Enum):
@@ -130,10 +131,13 @@ def verify_message(
 ) -> VerifyResult:
     """Verify a BIP-322 signature for ``address`` over ``message`` (bytes).
 
-    ``engines`` may contain ``"btclib"`` (always run) and ``"kernel"``.
+    ``engines`` may contain ``"btclib"`` (always run) and ``"kernel"``; asking
+    for an engine that is not installed raises :class:`EngineError` rather than
+    producing a verdict.
     """
     if isinstance(message, str):
         raise TypeError("message must be bytes; encode text as UTF-8")
+    check_engines(engines)
     try:
         spk = script_pubkey_from_address(address)
         decoded = decode_signature(signature, allow_unprefixed=allow_unprefixed)
@@ -164,6 +168,9 @@ def verify_message(
                 return result
         elif decoded.variant == PREFIX_POF:
             psbt = parse_psbt(decoded.payload)
+            if not psbt.inputs:
+                result.reason = "proof-of-funds PSBT has no inputs"
+                return result
             if not is_finalized(psbt):
                 result.reason = "proof-of-funds PSBT is not finalized"
                 return result
@@ -180,8 +187,11 @@ def verify_message(
         else:  # pragma: no cover
             result.reason = f"unknown variant {decoded.variant}"
             return result
-    except (SignatureFormatError, PSBTBuildError) as exc:
+    except BIP322Error as exc:
         result.reason = f"error parsing signature as {decoded.variant} variant: {exc}"
+        return result
+    except (IndexError, ValueError, TypeError) as exc:  # malformed payload that slipped past the parsers
+        result.reason = f"error parsing signature as {decoded.variant} variant: malformed payload ({type(exc).__name__})"
         return result
 
     # ---- shape checks ------------------------------------------------------ #

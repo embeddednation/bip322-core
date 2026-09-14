@@ -132,6 +132,9 @@ def parse_witness(raw: bytes) -> list[bytes]:
         raise SignatureFormatError(f"malformed witness stack: {exc}") from exc
     if stream.read():
         raise SignatureFormatError("trailing bytes after witness stack")
+    if serialize_witness(items) != raw:
+        # e.g. a non-minimal compact-size length: same stack, different bytes
+        raise SignatureFormatError("non-canonical witness stack encoding")
     return items
 
 
@@ -144,18 +147,24 @@ def parse_transaction(raw: bytes) -> Transaction:
         raise SignatureFormatError(f"malformed transaction: {exc}") from exc
     if stream.read():
         raise SignatureFormatError("trailing bytes after transaction")
+    if tx.serialize() != raw:
+        # non-minimal compact sizes, or a segwit marker with empty witnesses
+        # (Core rejects the latter as a "superfluous witness record")
+        raise SignatureFormatError("non-canonical transaction encoding")
     return tx
 
 
 def is_native_segwit(script_pubkey: bytes) -> bool:
-    """True for a witness program (v0 P2WPKH/P2WSH or v1+ programs)."""
+    """True for a valid witness program: v0 with a 20/32-byte program, or v1..16 with 2..40 bytes."""
     spk = bytes(script_pubkey)
     if len(spk) < 4 or len(spk) > 42:
         return False
     version, push = spk[0], spk[1]
-    if version != 0 and not (0x51 <= version <= 0x60):
+    if push != len(spk) - 2:
         return False
-    return push == len(spk) - 2 and 2 <= push <= 40
+    if version == 0:
+        return push in (20, 32)
+    return 0x51 <= version <= 0x60 and 2 <= push <= 40
 
 
 def is_op_return_output(out: TransactionOutput) -> bool:

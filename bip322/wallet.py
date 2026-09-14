@@ -152,6 +152,12 @@ class Wallet:
                     xpub=key.key.to_public() if key.key.is_private else key.key,
                 )
             )
+        seen: set[str] = set()
+        for c in cosigners:
+            xpub = c.xpub.to_base58()
+            if xpub in seen:
+                raise WalletError("the same xpub appears more than once in the descriptor")
+            seen.add(xpub)
         self.descriptor = descriptor.to_public()
         self.network = network
         self.name = name

@@ -90,7 +90,9 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
    txids, locktime/sequence, sighash types, per-engine results).
 
 `bip322 analyzepsbt proof.psbt` applies the BIP's *PSBT signer* detection rules
-and shows the message, address, partial signatures and any problems.
+and shows the message, address, partial signatures and any problems; it also
+warns about metadata a hardware signer needs (witness script, key paths) and
+flags any sighash type other than ALL.
 
 Output convention for every command: stdout carries exactly the artifact (a
 PSBT, a signature, a descriptor, a JSON report), so `> file` always works;
@@ -135,7 +137,8 @@ ends with five independent verifiers agreeing. Artifacts land in `examples/out/`
 
 * rebuild `to_spend` from (message, address); decode the signature by prefix
   (a prefix-less payload is read as *simple*, a 65-byte one as legacy BIP-137,
-  P2PKH only);
+  P2PKH only); payloads must be canonically encoded (non-minimal compact sizes
+  or a superfluous witness marker are rejected, as Core does);
 * `smp` is accepted only for native segwit addresses; `ful` must have exactly
   one input; `pof` must be a finalized PSBT and supplies the extra prevouts;
 * shape checks (input 0 spends `to_spend:0`, exactly one zero-value `OP_RETURN`
@@ -148,6 +151,10 @@ ends with five independent verifiers agreeing. Artifacts land in `examples/out/`
 * **upgradeable rules** — version must be 0 or 2, and the `DISCOURAGE_*`
   flags → *inconclusive* on failure;
 * otherwise *valid*, reporting `nLockTime` and input 0 `nSequence`.
+
+Engines fail closed: an exception inside an interpreter is reported as that
+engine failing, never as a pass, and asking for an engine that is not installed
+is an error rather than a verdict.
 
 The framing is our own code; only the script interpreters are shared with
 third parties. The official vectors (`tests/vectors/`) cover P2WSH 2-of-2 and

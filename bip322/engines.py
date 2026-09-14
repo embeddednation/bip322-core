@@ -14,10 +14,27 @@ in input order and the serialized spending transaction.
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass, field
 from typing import Sequence
 
+from .core import BIP322Error
+
 Prevout = tuple[int, bytes]
+KNOWN_ENGINES = ("btclib", "kernel")
+
+
+class EngineError(BIP322Error):
+    """A requested script engine is unknown or not installed."""
+
+
+def check_engines(engines: Sequence[str]) -> None:
+    """Raise :class:`EngineError` unless every requested engine can run."""
+    unknown = [e for e in engines if e not in KNOWN_ENGINES]
+    if unknown:
+        raise EngineError(f"unknown engine(s) {unknown}; known: {list(KNOWN_ENGINES)}")
+    if "kernel" in engines and not kernel_available():
+        raise EngineError("the kernel engine was requested but py-bitcoinkernel is not installed")
 
 
 @dataclass
@@ -81,6 +98,8 @@ def btclib_run(prevouts: Sequence[Prevout], tx_bytes: bytes, flags: ScriptFlag, 
         verify_transaction(outs, tx, flags, check_amounts=True, hash_types=hash_types)
     except (BTClibValueError, BTClibRuntimeError, ValueError, RuntimeError) as exc:
         return EngineRun(name, False, f"{type(exc).__name__}: {exc}", hash_types, version=btclib.__version__)
+    except Exception as exc:  # noqa: BLE001 - fail closed: an interpreter crash is never a pass
+        return EngineRun(name, False, f"engine crashed: {type(exc).__name__}: {exc}", hash_types, version=btclib.__version__)
     return EngineRun(name, True, None, hash_types, version=btclib.__version__)
 
 
@@ -134,8 +153,9 @@ def available_engines() -> list[str]:
     return engines
 
 
+@functools.lru_cache(maxsize=1)
 def kernel_core_version() -> str | None:
-    """The Bitcoin Core version bundled in libbitcoinkernel (read from the shared library)."""
+    """The Bitcoin Core version bundled in libbitcoinkernel (read once from the shared library)."""
     import re
     from pathlib import Path
 

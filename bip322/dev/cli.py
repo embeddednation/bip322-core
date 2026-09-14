@@ -12,7 +12,6 @@ from embit.networks import NETWORKS
 from ..cli import CLIError, _add_output_args, _emit, _network, _read_psbt, _write_psbt
 from ..core import BIP322Error
 from ..psbt import inspect_psbt
-from ..wallet import WalletError
 from .keys import cosigner_from_text, generate_cosigner, wallet_from_cosigners
 from .signing import sign_psbt
 
@@ -105,8 +104,11 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (CLIError, BIP322Error, WalletError) as exc:
+    except (CLIError, BIP322Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"error: {exc.strerror or exc}: {exc.filename}" if getattr(exc, "filename", None) else f"error: {exc}", file=sys.stderr)
         return 2
 
 

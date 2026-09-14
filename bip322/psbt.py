@@ -1,4 +1,4 @@
-"""BIP-322 PSBTs: creation, software signing, combining, finalizing, extraction.
+"""BIP-322 PSBTs: creation, inspection, combining, finalizing, extraction.
 
 The PSBT is the ``to_sign`` transaction (version 0, locktime 0, one input with
 sequence 0, one zero-value ``OP_RETURN`` output) plus the metadata a signer
@@ -15,13 +15,14 @@ defaults; :class:`BIP322PSBT` fixes both.
 from __future__ import annotations
 
 import copy
+import hashlib
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from io import BytesIO
-from typing import Iterable, Sequence
+from typing import Sequence
 
 from embit import ec
 from embit.finalizer import parse_multisig
+from embit.hashes import hash160
 from embit.networks import NETWORKS
 from embit.psbt import PSBT, DerivationPath, InputScope
 from embit.script import Script, Witness
@@ -137,7 +138,7 @@ def create_psbt(
     psbt_version: int | None = None,
     explicit_sighash: bool = True,
 ) -> BIP322PSBT:
-    """Build the BIP-322 PSBT for ``message`` and the derived multisig address.
+    """Build the BIP-322 PSBT for ``message`` and a derived wallet address.
 
     ``utxo_mode`` is ``"witness"`` (witness_utxo only, default), ``"non_witness"``
     (the whole ``to_spend`` as non_witness_utxo) or ``"both"``.
@@ -191,6 +192,8 @@ class PSBTInfo:
     #: input 0 partial signatures: pubkey hex -> sighash byte
     partial_sigs: dict[str, int] = field(default_factory=dict)
     finalized: bool = False
+    #: not BIP-322 violations, but things a hardware signer will refuse without
+    warnings: list[str] = field(default_factory=list)
 
 
 def inspect_psbt(psbt: BIP322PSBT, network: str = "main") -> PSBTInfo:
@@ -234,6 +237,13 @@ def inspect_psbt(psbt: BIP322PSBT, network: str = "main") -> PSBTInfo:
         info.problems.append("to_sign must have exactly one zero-value OP_RETURN output")
     if tx.version not in (0, 2):
         info.problems.append(f"to_sign version {tx.version} is not 0 or 2")
+    if inp.sighash_type not in (None, SIGHASH_ALL):
+        info.problems.append(f"input 0 requests sighash type 0x{inp.sighash_type:02x}; BIP-322 requires SIGHASH_ALL")
+    spk_type = Script(spk).script_type() if spk is not None else None
+    if spk_type == "p2wsh" and inp.witness_script is None:
+        info.warnings.append("no witness_script for the P2WSH input (hardware signers need it)")
+    if spk is not None and not inp.bip32_derivations and not inp.final_scriptwitness:
+        info.warnings.append("no BIP32 derivation paths (hardware signers need them to find their key)")
     if inp.witness_script is not None:
         info.witness_script = inp.witness_script.data
         try:
@@ -247,6 +257,8 @@ def inspect_psbt(psbt: BIP322PSBT, network: str = "main") -> PSBTInfo:
         info.pubkeys = [pk.sec().hex() for pk in inp.bip32_derivations] or [pk.sec().hex() for pk in inp.partial_sigs]
     for pub, sig in inp.partial_sigs.items():
         info.partial_sigs[pub.sec().hex()] = sig[-1] if sig else -1
+        if not sig or sig[-1] != SIGHASH_ALL:
+            info.problems.append(f"partial signature by {pub.sec().hex()[:16]}... does not use SIGHASH_ALL")
     info.finalized = bool(inp.final_scriptwitness) or bool(inp.final_scriptsig)
     info.is_bip322 = not info.problems
     return info
@@ -267,7 +279,8 @@ def combine_psbts(psbts: Sequence[BIP322PSBT]) -> BIP322PSBT:
             raise PSBTBuildError("PSBTs sign different transactions and cannot be combined")
         if other.message != base.message:
             raise PSBTBuildError("PSBTs carry different messages and cannot be combined")
-        for mine, theirs in zip(base.inputs, other.inputs):
+        for index, (mine, theirs) in enumerate(zip(base.inputs, other.inputs)):
+            _check_mergeable(index, mine, theirs)
             mine.update(theirs)
         for mine, theirs in zip(base.outputs, other.outputs):
             mine.update(theirs)
@@ -277,19 +290,42 @@ def combine_psbts(psbts: Sequence[BIP322PSBT]) -> BIP322PSBT:
     return base
 
 
+def _check_mergeable(index: int, mine, theirs) -> None:
+    """Refuse to combine inputs whose shared fields disagree (BIP-174 combiner rule)."""
+    pairs = (
+        ("witness_utxo", lambda x: x.serialize() if x is not None else None),
+        ("non_witness_utxo", lambda x: x.serialize() if x is not None else None),
+        ("witness_script", lambda x: x.data if x is not None else None),
+        ("redeem_script", lambda x: x.data if x is not None else None),
+        ("sighash_type", lambda x: x),
+    )
+    for name, view in pairs:
+        a, b = view(getattr(mine, name)), view(getattr(theirs, name))
+        if a is not None and b is not None and a != b:
+            raise PSBTBuildError(f"input {index}: {name} differs between the PSBTs being combined")
+
+
 def _der_r_s(der: bytes) -> tuple[int, int]:
-    if len(der) < 8 or der[0] != 0x30 or der[1] != len(der) - 2 or der[2] != 0x02:
-        raise FinalizeError("signature is not DER encoded")
-    r_len = der[3]
-    r = int.from_bytes(der[4 : 4 + r_len], "big")
-    pos = 4 + r_len
-    if der[pos] != 0x02:
-        raise FinalizeError("signature is not DER encoded")
-    s_len = der[pos + 1]
-    s = int.from_bytes(der[pos + 2 : pos + 2 + s_len], "big")
-    if pos + 2 + s_len != len(der):
-        raise FinalizeError("signature is not DER encoded")
-    return r, s
+    """Strict DER (BIP-66) parse of an ECDSA signature without its sighash byte."""
+    bad = FinalizeError("signature is not strictly DER encoded (BIP-66)")
+    if not 8 <= len(der) <= 72 or der[0] != 0x30 or der[1] != len(der) - 2 or der[2] != 0x02:
+        raise bad
+    len_r = der[3]
+    if len_r == 0 or 5 + len_r >= len(der):
+        raise bad
+    if der[4 + len_r] != 0x02:
+        raise bad
+    len_s = der[5 + len_r]
+    if len_s == 0 or len_r + len_s + 6 != len(der):
+        raise bad
+    r_bytes = der[4 : 4 + len_r]
+    s_bytes = der[6 + len_r : 6 + len_r + len_s]
+    for part in (r_bytes, s_bytes):
+        if part[0] & 0x80:  # negative
+            raise bad
+        if len(part) > 1 and part[0] == 0 and not part[1] & 0x80:  # non-minimal
+            raise bad
+    return int.from_bytes(r_bytes, "big"), int.from_bytes(s_bytes, "big")
 
 
 def check_partial_signature(psbt: BIP322PSBT, input_index: int, pubkey: ec.PublicKey, sig: bytes) -> None:
@@ -312,7 +348,7 @@ def check_partial_signature(psbt: BIP322PSBT, input_index: int, pubkey: ec.Publi
 def _finalize_p2wpkh(psbt: BIP322PSBT, input_index: int, inp, spk: bytes) -> Witness:
     program = spk[2:]
     for pub, sig in inp.partial_sigs.items():
-        if __import__("embit").hashes.hash160(pub.sec()) != program:
+        if hash160(pub.sec()) != program:
             continue
         check_partial_signature(psbt, input_index, pub, sig)
         return Witness([sig, pub.sec()])
@@ -336,7 +372,7 @@ def finalize_input(psbt: BIP322PSBT, input_index: int, *, strict: bool = True) -
             threshold, pubkeys = parse_multisig(inp.witness_script)
         except Exception as exc:  # noqa: BLE001
             raise FinalizeError(f"input {input_index}: witness script is not a k-of-n CHECKMULTISIG: {exc}") from exc
-        if spk.data != Script(b"\x00\x20" + __import__("hashlib").sha256(inp.witness_script.data).digest()).data:
+        if spk.data != b"\x00\x20" + hashlib.sha256(inp.witness_script.data).digest():
             raise FinalizeError(f"input {input_index}: witness_script does not hash to the spent script_pubkey")
         sigs: list[bytes] = []
         rejected: list[str] = []
@@ -362,12 +398,13 @@ def finalize_input(psbt: BIP322PSBT, input_index: int, *, strict: bool = True) -
     inp.final_scriptwitness = witness
     if inp.redeem_script is not None:  # sh(wsh()) - not produced by this tool but handled
         inp.final_scriptsig = Script(_push(inp.redeem_script.data))
+    # BIP-174: the finalizer removes the fields the signatures replaced; unknown
+    # (proprietary) fields are kept
     inp.partial_sigs = OrderedDict()
     inp.sighash_type = None
     inp.redeem_script = None
     inp.witness_script = None
     inp.bip32_derivations = OrderedDict()
-    inp.unknown = {}
     return witness
 
 
@@ -408,16 +445,23 @@ def psbt_prevouts(psbt: BIP322PSBT) -> list[tuple[int, bytes]]:
     prevouts: list[tuple[int, bytes]] = []
     seen_non_witness: dict[bytes, Transaction] = {}
     for index, inp in enumerate(psbt.inputs):
-        utxo = None
-        if inp.witness_utxo is not None:
-            utxo = inp.witness_utxo
-        elif inp.non_witness_utxo is not None:
-            seen_non_witness[inp.txid] = inp.non_witness_utxo
-            utxo = inp.non_witness_utxo.vout[inp.vout]
+        from_tx = None
+        prev_tx = inp.non_witness_utxo
+        if prev_tx is not None:
+            if prev_tx.txid() != inp.txid:
+                raise PSBTBuildError(f"input {index}: non_witness_utxo is not the transaction the input spends")
+            seen_non_witness[inp.txid] = prev_tx
         elif inp.txid in seen_non_witness:
-            utxo = seen_non_witness[inp.txid].vout[inp.vout]
+            prev_tx = seen_non_witness[inp.txid]  # BIP-322: reuse an earlier input's non_witness_utxo
+        if prev_tx is not None:
+            if inp.vout >= len(prev_tx.vout):
+                raise PSBTBuildError(f"input {index}: prevout index {inp.vout} beyond the previous transaction's outputs")
+            from_tx = prev_tx.vout[inp.vout]
+        utxo = inp.witness_utxo if inp.witness_utxo is not None else from_tx
         if utxo is None:
             raise PSBTBuildError(f"input {index} has no witness_utxo / non_witness_utxo")
+        if from_tx is not None and inp.witness_utxo is not None and from_tx.serialize() != inp.witness_utxo.serialize():
+            raise PSBTBuildError(f"input {index}: witness_utxo and non_witness_utxo disagree")
         prevouts.append((utxo.value, utxo.script_pubkey.data))
     return prevouts
 
@@ -432,7 +476,7 @@ def choose_variant(psbt: BIP322PSBT) -> str:
     simple_ok = (
         tx.version == 0
         and tx.locktime == 0
-        and (inp.sequence or 0) == 0
+        and tx.vin[0].sequence == 0
         and not (inp.final_scriptsig and inp.final_scriptsig.data)
         and is_native_segwit(spk)
     )

@@ -3,21 +3,17 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import sys
 from pathlib import Path
 
 from embit.networks import NETWORKS
 
-from . import __doc__ as _pkgdoc  # noqa: F401
 from .coldcard import lint_message_for_coldcard
 from .core import BIP322Error, build_to_spend
 from .engines import available_engines, engine_labels, engine_versions
 from .psbt import (
     BIP322PSBT,
-    FinalizeError,
-    choose_variant,
     combine_psbts,
     create_psbt,
     extract_tx,
@@ -27,7 +23,7 @@ from .psbt import (
     signature_from_psbt,
 )
 from .verify import State, verify_message
-from .wallet import Wallet, WalletError, wallet_from_file
+from .wallet import Wallet, wallet_from_file
 
 
 class CLIError(Exception):
@@ -75,7 +71,7 @@ def _write_psbt(psbt: BIP322PSBT, path: str | None, binary: bool = False) -> Non
         print(psbt.to_string())
         return
     out = Path(path)
-    if binary or out.suffix.lower() == ".psbt" and binary:
+    if binary:
         out.write_bytes(psbt.serialize())
     else:
         out.write_text(psbt.to_string() + "\n")
@@ -164,6 +160,9 @@ def cmd_create(args) -> int:
             raise CLIError(f"address {args.address} not found in the first {args.max_index} indexes of the wallet")
     else:
         derived = wallet.derive(args.index, 1 if args.change else 0)
+    lint = lint_message_for_coldcard(message)
+    if lint and args.strict_coldcard:
+        raise CLIError("message would be refused by a Coldcard: " + "; ".join(lint))
     psbt = create_psbt(
         derived,
         message,
@@ -171,7 +170,6 @@ def cmd_create(args) -> int:
         utxo_mode=args.utxo,
         psbt_version=2 if args.psbt_v2 else None,
     )
-    lint = lint_message_for_coldcard(message)
     summary = {
         "address": derived.address,
         "branch": derived.branch,
@@ -186,8 +184,6 @@ def cmd_create(args) -> int:
     }
     _write_psbt(psbt, args.output, binary=args.binary)
     print(json.dumps(summary, indent=2), file=sys.stderr)
-    if lint and args.strict_coldcard:
-        raise CLIError("message would be refused by a Coldcard: " + "; ".join(lint))
     return 0
 
 
@@ -197,6 +193,7 @@ def cmd_inspect(args) -> int:
     out = {
         "is_bip322": info.is_bip322,
         "problems": info.problems,
+        "warnings": info.warnings,
         "message_utf8": info.message.decode("utf-8", errors="replace") if info.message is not None else None,
         "address": info.address,
         "script_pubkey": info.script_pubkey.hex() if info.script_pubkey else None,
@@ -423,8 +420,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (CLIError, BIP322Error, WalletError, FinalizeError) as exc:
+    except (CLIError, BIP322Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"error: {exc.strerror or exc}: {exc.filename}" if getattr(exc, "filename", None) else f"error: {exc}", file=sys.stderr)
         return 2
 
 
