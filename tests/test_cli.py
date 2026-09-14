@@ -138,3 +138,21 @@ def test_cli_deriveaddresses_and_getaddressinfo(tmp_path, wallet, capsys):
     assert MultisigWallet.from_descriptor(info["wallet_desc"]).derive(4, 1).address == target.address
     assert main(["getaddressinfo", "-w", str(cfg), wallet.derive(600).address, "--max-index", "10"]) == 1
     assert json.loads(capsys.readouterr().out)["ismine"] is False
+
+
+def test_cli_wallet_options_before_subcommand(tmp_path, wallet, capsys):
+    cfg = tmp_path / "wallet.desc"
+    cfg.write_text(wallet.to_descriptor() + "\n")
+    addr = wallet.derive(2).address
+    assert main(["-w", str(cfg), "getaddressinfo", addr]) == 0
+    assert json.loads(capsys.readouterr().out)["index"] == 2
+    assert main(["-w", str(cfg), "deriveaddresses", "--index", "2"]) == 0
+    assert capsys.readouterr().out.strip() == addr
+    assert main(["-d", wallet.to_descriptor(), "--network", "regtest", "deriveaddresses", "--index", "2"]) == 0
+    assert capsys.readouterr().out.strip().startswith("bcrt1q")
+    # the subcommand position still works and wins when both are given
+    other = tmp_path / "other.desc"
+    other.write_text(wallet.to_descriptor() + "\n")
+    assert main(["-w", str(tmp_path / "missing.desc"), "deriveaddresses", "-w", str(other), "--index", "2"]) == 0
+    assert capsys.readouterr().out.strip() == addr
+    assert main(["deriveaddresses", "--index", "2"]) == 2

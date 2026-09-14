@@ -43,11 +43,18 @@ def _read_message(args) -> bytes:
     return args.message.encode("utf-8")
 
 
+def _network(args) -> str | None:
+    return getattr(args, "network", None) or getattr(args, "global_network", None)
+
+
 def _load_wallet(args) -> MultisigWallet:
-    if getattr(args, "descriptor", None):
-        return MultisigWallet.from_descriptor(args.descriptor, network=args.network or "main")
-    if getattr(args, "wallet", None):
-        return wallet_from_file(args.wallet, network=args.network)
+    """Wallet options may be given before or after the subcommand."""
+    descriptor = getattr(args, "descriptor", None) or getattr(args, "global_descriptor", None)
+    wallet = getattr(args, "wallet", None) or getattr(args, "global_wallet", None)
+    if descriptor:
+        return MultisigWallet.from_descriptor(descriptor, network=_network(args) or "main")
+    if wallet:
+        return wallet_from_file(wallet, network=_network(args))
     raise CLIError("provide --wallet FILE (a wsh(sortedmulti(...)) descriptor) or --descriptor")
 
 
@@ -170,7 +177,7 @@ def cmd_create(args) -> int:
 
 def cmd_inspect(args) -> int:
     psbt = _read_psbt(args.psbt)
-    info = inspect_psbt(psbt, network=args.network or "main")
+    info = inspect_psbt(psbt, network=_network(args) or "main")
     out = {
         "is_bip322": info.is_bip322,
         "problems": info.problems,
@@ -194,7 +201,7 @@ def cmd_inspect(args) -> int:
 
 def cmd_sign(args) -> int:
     psbt = _read_psbt(args.psbt)
-    info = inspect_psbt(psbt, network=args.network or "main")
+    info = inspect_psbt(psbt, network=_network(args) or "main")
     if not info.is_bip322 and not args.force:
         raise CLIError("refusing to sign: not a well-formed BIP-322 PSBT: " + "; ".join(info.problems))
     total = 0
@@ -225,7 +232,7 @@ def cmd_makewallet(args) -> int:
     fps = [c.fingerprint_hex for c in cosigners]
     if len(set(fps)) != len(fps):
         raise CLIError("duplicate cosigner fingerprints: " + ", ".join(fps))
-    network = args.network or "main"
+    network = _network(args) or "main"
     name = args.name or f"bip322ms-{args.threshold}of{len(cosigners)}"
     wallet = wallet_from_cosigners(args.threshold, cosigners, network=network, name=name)
     text = wallet.to_descriptor() + "\n"
@@ -243,14 +250,14 @@ def cmd_combine(args) -> int:
     psbts = [_read_psbt(p) for p in args.psbts]
     combined = combine_psbts(psbts)
     _write_psbt(combined, args.output, binary=args.binary)
-    info = inspect_psbt(combined, network=args.network or "main")
+    info = inspect_psbt(combined, network=_network(args) or "main")
     print(f"combined {len(psbts)} PSBT(s); input 0 now has {len(info.partial_sigs)} partial signature(s)", file=sys.stderr)
     return 0
 
 
 def cmd_finalize(args) -> int:
     psbt = _read_psbt(args.psbt)
-    info = inspect_psbt(psbt, network=args.network or "main")
+    info = inspect_psbt(psbt, network=_network(args) or "main")
     if not info.is_bip322:
         raise CLIError("not a well-formed BIP-322 PSBT: " + "; ".join(info.problems))
     message = info.message
@@ -330,7 +337,7 @@ def cmd_keygen(args) -> int:
         seed = hashlib.sha512(("bip322ms-keygen:" + args.seed).encode("utf-8")).digest()
     else:
         seed = os.urandom(64)
-    net = NETWORKS[args.network or "main"]
+    net = NETWORKS[_network(args) or "main"]
     master = HDKey.from_seed(seed, version=net["xprv"])
     origin = path_to_str(path_from_str(args.origin), prefix="")[1:]
     account = master.derive("m/" + origin)
@@ -379,6 +386,10 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bip322ms", description="BIP-322 message signing for P2WSH multisig quorums")
+    # wallet options are accepted here (before the subcommand) as well as after it
+    parser.add_argument("--wallet", "-w", dest="global_wallet", metavar="FILE", help="file holding the wallet's wsh(sortedmulti(...)) descriptor")
+    parser.add_argument("--descriptor", "-d", dest="global_descriptor", metavar="DESC", help="wsh(sortedmulti(...)) descriptor text")
+    parser.add_argument("--network", dest="global_network", choices=sorted(NETWORKS), default=None, help="address network (default: main)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("wallet", help="show wallet policy, cosigners and descriptor")
