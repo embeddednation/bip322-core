@@ -29,7 +29,7 @@ def test_baseline_valid(proof, kernel_engines):
 def test_wrong_message(proof):
     derived, _, sig = proof
     r = verify_message(derived.address, sig, b"negative tests ")
-    assert r.state is State.INVALID and "script verification failed" in r.reason
+    assert r.state is State.INVALID and "do not verify for this message" in r.reason
 
 
 def test_wrong_address_same_wallet(proof, wallet):

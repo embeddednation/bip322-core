@@ -76,6 +76,28 @@ class VerifyResult:
         }
 
 
+_EXPLANATIONS = (
+    ("failed OP_CHECKMULTISIG", "the signatures do not verify for this message and address"),
+    ("failed OP_CHECKSIG", "the signature does not verify for this message and address"),
+    ("witness script sha256", "the witness script does not belong to this address"),
+    ("witness program", "the witness does not fit this address type"),
+    ("high s", "a signature is not low-S (malleable encoding, forbidden by BIP-322)"),
+    ("der", "a signature is not strictly DER encoded"),
+    ("clean stack", "the witness has extra elements"),
+    ("stack underflow", "the witness is missing elements"),
+    ("dummy", "the CHECKMULTISIG dummy element is not empty"),
+    ("false top stack", "the script evaluated to false"),
+)
+
+
+def _explain(error: str | None) -> str:
+    text = (error or "").lower()
+    for needle, explanation in _EXPLANATIONS:
+        if needle.lower() in text:
+            return explanation
+    return "script verification failed"
+
+
 def script_pubkey_from_address(address: str) -> bytes:
     try:
         return address_to_scriptpubkey(address.strip()).data
@@ -184,7 +206,7 @@ def verify_message(
     result.engines.append(required)
     result.sighash_types = list(required.sighash_types)
     if not required.ok:
-        result.reason = f"script verification failed: {required.error}"
+        result.reason = f"{_explain(required.error)} ({required.error})"
         return result
     bad = [h for h in required.sighash_types if h not in (SIGHASH_ALL, SIGHASH_DEFAULT)]
     if bad:
