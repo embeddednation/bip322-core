@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check ONE BIP-322 signature against every available reference implementation.
 
-    bip322-refcheck -a bc1q... -m "message" -s smp...
+    bip322-refcheck ADDRESS SIGNATURE MESSAGE      (--signature-file / --message-file instead of the value)
     bip322-refcheck corpus            # the 46-case corpus run (refcheck/run_refcheck.py)
 
 Verifiers: ours (btclib + kernel), btclib's own BIP-322 module, the btcd
@@ -146,20 +146,21 @@ def main(argv=None) -> int:
 
         return corpus_main(argv[1:])
     parser = argparse.ArgumentParser(prog="bip322-refcheck", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--address", "-a", required=True)
-    g = parser.add_mutually_exclusive_group(required=True)
-    g.add_argument("--message", "-m")
-    g.add_argument("--message-file")
-    g = parser.add_mutually_exclusive_group(required=True)
-    g.add_argument("--signature", "-s")
-    g.add_argument("--signature-file")
+    parser.add_argument("address")
+    parser.add_argument("values", nargs="*", metavar="SIGNATURE MESSAGE")
+    parser.add_argument("--signature-file", metavar="FILE")
+    parser.add_argument("--message-file", metavar="FILE")
     parser.add_argument("--no-knots", action="store_true")
     parser.add_argument("--no-core", action="store_true")
     parser.add_argument("--no-btcd", action="store_true")
     args = parser.parse_args(argv)
 
-    message = Path(args.message_file).read_bytes() if args.message_file else args.message.encode("utf-8")
-    signature = Path(args.signature_file).read_text().strip() if args.signature_file else args.signature.strip()
+    expected = [n for n, f in (("signature", args.signature_file), ("message", args.message_file)) if not f]
+    if len(args.values) != len(expected):
+        parser.error(f"expected {' '.join(n.upper() for n in expected) or 'no further values'} after the address")
+    values = dict(zip(expected, args.values, strict=True))
+    message = Path(args.message_file).read_bytes() if args.message_file else values["message"].encode("utf-8")
+    signature = Path(args.signature_file).read_text().strip() if args.signature_file else values["signature"].strip()
     chain = chain_of(args.address)
     OUT.mkdir(parents=True, exist_ok=True)
 

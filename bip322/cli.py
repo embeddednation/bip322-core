@@ -31,12 +31,25 @@ class CLIError(Exception):
     pass
 
 
-def _read_message(args) -> bytes:
+def _positional_values(args, slots: list[tuple[str, str | None]]) -> dict[str, str]:
+    """Map the trailing positional values onto ``slots`` = [(name, file_flag_attr)].
+
+    A slot whose file flag was given (e.g. ``--message-file``) is not expected
+    on the command line, so ``verifymessage ADDR MSG --signature-file F`` works.
+    """
+    expected = [name for name, file_attr in slots if not (file_attr and getattr(args, file_attr, None))]
+    values = list(getattr(args, "values", []) or [])
+    if len(values) != len(expected):
+        want = " ".join(n.upper() for n in expected) or "no further values"
+        raise CLIError(f"expected {want} after the address, got {len(values)} value(s)" if "address" in vars(args) else f"expected {want}, got {len(values)} value(s)")
+    return dict(zip(expected, values, strict=True))
+
+
+def _message_bytes(args, text: str | None) -> bytes:
+    """The message: ``--message-file``'s exact bytes, otherwise the UTF-8 encoding of ``text``."""
     if getattr(args, "message_file", None):
         return Path(args.message_file).read_bytes()
-    if getattr(args, "message", None) is None:
-        raise CLIError("provide --message or --message-file")
-    return args.message.encode("utf-8")
+    return (text or "").encode("utf-8")
 
 
 def _network(args) -> str | None:
@@ -92,10 +105,14 @@ def cmd_wallet(args) -> int:
 def cmd_deriveaddresses(args) -> int:
     """Like Bitcoin Core's deriveaddresses: addresses for an explicit index range."""
     wallet = _load_wallet(args)
-    if args.index is not None:
-        start = end = args.index
+    if len(args.indexes) == 0:
+        start = end = 0
+    elif len(args.indexes) == 1:
+        start = end = args.indexes[0]
+    elif len(args.indexes) == 2:
+        start, end = args.indexes
     else:
-        start, end = args.range
+        raise CLIError("give INDEX, or START END")
     if start < 0 or end < start:
         raise CLIError("range must be START END with 0 <= START <= END")
     branch = 1 if args.change else 0
@@ -154,13 +171,10 @@ def cmd_getaddressinfo(args) -> int:
 
 def cmd_create(args) -> int:
     wallet = _load_wallet(args)
-    message = _read_message(args)
-    if args.address:
-        derived = wallet.find_address(args.address, max_index=args.max_index)
-        if derived is None:
-            raise CLIError(f"address {args.address} not found in the first {args.max_index} indexes of the wallet")
-    else:
-        derived = wallet.derive(args.index, 1 if args.change else 0)
+    message = _message_bytes(args, _positional_values(args, [("message", "message_file")]).get("message"))
+    derived = wallet.find_address(args.address, max_index=args.max_index)
+    if derived is None:
+        raise CLIError(f"address {args.address} not found in the first {args.max_index + 1} receive/change indexes of the wallet")
     lint = lint_message_for_coldcard(message)
     if lint and args.strict_coldcard:
         raise CLIError("message would be refused by a Coldcard: " + "; ".join(lint))
@@ -249,17 +263,10 @@ def cmd_finalize(args) -> int:
 
 
 def cmd_verify(args) -> int:
-    address = args.address or args.pos_address
-    if not address:
-        raise CLIError("provide an address (positional or --address)")
-    if args.pos_message is not None and args.message is None and not args.message_file:
-        args.message = args.pos_message
-    message = _read_message(args)
-    signature = args.signature or args.pos_signature
-    if args.signature_file:
-        signature = Path(args.signature_file).read_text().strip()
-    if signature is None:
-        raise CLIError("provide a signature (positional, --signature or --signature-file)")
+    address = args.address
+    values = _positional_values(args, [("signature", "signature_file"), ("message", "message_file")])
+    message = _message_bytes(args, values.get("message"))
+    signature = Path(args.signature_file).read_text().strip() if args.signature_file else values["signature"]
     engines = args.engines.split(",") if args.engines else available_engines()
     result = verify_message(
         address,
@@ -295,7 +302,7 @@ EXIT_BY_STATE = {State.VALID: 0, State.INVALID: 1, State.INCONCLUSIVE: 3}
 
 
 def cmd_lint(args) -> int:
-    message = _read_message(args)
+    message = _message_bytes(args, _positional_values(args, [("message", "message_file")]).get("message"))
     problems = lint_message_for_coldcard(message)
     if problems:
         print("Coldcard would refuse this message:")
@@ -323,10 +330,8 @@ def _add_wallet_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--network", choices=sorted(NETWORKS), default=None, help="address network (default: main)")
 
 
-def _add_message_args(p: argparse.ArgumentParser) -> None:
-    g = p.add_mutually_exclusive_group()
-    g.add_argument("--message", "-m", help="message text (UTF-8)")
-    g.add_argument("--message-file", help="file whose exact bytes are the message")
+def _add_message_file(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--message-file", metavar="FILE", help="take the message's exact bytes from FILE instead of the MESSAGE argument")
 
 
 def _add_output_args(p: argparse.ArgumentParser) -> None:
@@ -347,11 +352,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_wallet_args(p)
     p.set_defaults(func=cmd_wallet)
 
-    p = sub.add_parser("deriveaddresses", help="addresses for an index range (like Bitcoin Core's deriveaddresses)")
+    p = sub.add_parser("deriveaddresses", help="addresses for an index or an index range (like Bitcoin Core's deriveaddresses)")
     _add_wallet_args(p)
-    g = p.add_mutually_exclusive_group()
-    g.add_argument("--range", nargs=2, type=int, metavar=("START", "END"), default=[0, 0], help="inclusive index range (default 0 0)")
-    g.add_argument("--index", type=int, help="a single index")
+    p.add_argument("indexes", nargs="*", type=int, metavar="INDEX", help="INDEX, or START END (inclusive); default 0")
     p.add_argument("--change", action="store_true", help="change branch instead of receive")
     p.add_argument("--json", action="store_true", help="objects with branch/index instead of bare addresses")
     p.set_defaults(func=cmd_deriveaddresses)
@@ -362,13 +365,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-index", type=int, default=500, help="how far to search each branch")
     p.set_defaults(func=cmd_getaddressinfo)
 
-    p = sub.add_parser("createpsbt", help="create the BIP-322 to_sign PSBT for a message and a wallet address")
+    p = sub.add_parser("createpsbt", help="create the BIP-322 to_sign PSBT for a wallet address and a message")
     _add_wallet_args(p)
-    _add_message_args(p)
-    p.add_argument("--address", "-a", help="the wallet address to sign for (searched in the wallet)")
-    p.add_argument("--index", type=int, default=0, help="derivation index (when no --address)")
-    p.add_argument("--change", action="store_true", help="use the change branch (when no --address)")
-    p.add_argument("--max-index", type=int, default=500, help="how far to search for --address")
+    p.add_argument("address", help="the wallet address to sign for (searched in the wallet)")
+    p.add_argument("values", nargs="*", metavar="MESSAGE", help="the message text (UTF-8)")
+    _add_message_file(p)
+    p.add_argument("--max-index", type=int, default=500, help="how far to search the wallet for ADDRESS")
     p.add_argument("--utxo", choices=["witness", "non_witness", "both"], default="witness", help="which UTXO field(s) to include for input 0")
     p.add_argument("--no-xpubs", action="store_true", help="omit PSBT_GLOBAL_XPUB entries")
     p.add_argument("--psbt-v2", action="store_true", help="emit a BIP-370 (v2) PSBT")
@@ -398,15 +400,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--binary", action="store_true", help="write --output-psbt in binary instead of base64")
     p.set_defaults(func=cmd_finalize)
 
-    p = sub.add_parser("verifymessage", help="verify a BIP-322 signature")
-    p.add_argument("pos_address", nargs="?", metavar="address", help="Core-style positional form: address signature message")
-    p.add_argument("pos_signature", nargs="?", metavar="signature")
-    p.add_argument("pos_message", nargs="?", metavar="message")
-    p.add_argument("--address", "-a")
-    g = p.add_mutually_exclusive_group()
-    g.add_argument("--signature", "-s")
-    g.add_argument("--signature-file")
-    _add_message_args(p)
+    p = sub.add_parser("verifymessage", help="verify a BIP-322 signature (same argument order as Bitcoin Core's RPC)")
+    p.add_argument("address")
+    p.add_argument("values", nargs="*", metavar="SIGNATURE MESSAGE", help="the signature string and the message text")
+    p.add_argument("--signature-file", metavar="FILE", help="read the signature from FILE instead of the SIGNATURE argument")
+    _add_message_file(p)
     p.add_argument("--engines", default=None, help="comma separated script engines to run (default: all installed, see `engines`)")
     p.add_argument("--require-prefix", action="store_true", help="reject signatures without smp/ful/pof prefix")
     p.add_argument("--no-legacy", action="store_true", help="reject legacy BIP-137 signatures")
@@ -415,7 +413,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.epilog = "exit codes: 0 valid, 1 invalid, 3 inconclusive, 2 error"
 
     p = sub.add_parser("lint-message", help="check a message against Coldcard's display rules")
-    _add_message_args(p)
+    p.add_argument("values", nargs="*", metavar="MESSAGE")
+    _add_message_file(p)
     p.set_defaults(func=cmd_lint)
 
     p = sub.add_parser("engines", help="list available script engines")

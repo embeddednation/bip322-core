@@ -248,7 +248,7 @@ def test_cli_strict_coldcard_writes_nothing_and_missing_files_are_clean_errors(t
     cfg = tmp_path / "w.desc"
     cfg.write_text(wallet.to_descriptor() + "\n")
     out = tmp_path / "p.psbt"
-    assert main(["-w", str(cfg), "createpsbt", "--index", "0", "-m", " leading space", "--strict-coldcard", "-o", str(out)]) == 2
+    assert main(["-w", str(cfg), "createpsbt", wallet.derive(0).address, " leading space", "--strict-coldcard", "-o", str(out)]) == 2
     assert not out.exists() and "Coldcard" in capsys.readouterr().err
     assert main(["analyzepsbt", str(tmp_path / "missing.psbt")]) == 2
     err = capsys.readouterr().err

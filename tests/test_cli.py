@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from bip322.cli import main
 from bip322.dev.cli import main as dev_main
 
@@ -11,7 +13,7 @@ def test_cli_roundtrip(tmp_path, wallet, signer_expressions, capsys):
     cfg.write_text(wallet.to_descriptor() + "\n")
     address = wallet.derive(3).address
     unsigned = tmp_path / "unsigned.psbt"
-    assert main(["createpsbt", "-w", str(cfg), "-a", address, "-m", MESSAGE, "-o", str(unsigned)]) == 0
+    assert main(["createpsbt", "-w", str(cfg), address, MESSAGE, "-o", str(unsigned)]) == 0
     assert unsigned.read_text().startswith("cHNidP8")
     assert main(["analyzepsbt", str(unsigned)]) == 0
     out = json.loads(capsys.readouterr().out)
@@ -19,7 +21,7 @@ def test_cli_roundtrip(tmp_path, wallet, signer_expressions, capsys):
     parts = []
     for i, key in enumerate(signer_expressions[:2]):
         part = tmp_path / f"part{i}.psbt"
-        assert dev_main(["signpsbt", str(unsigned), "-k", key, "-o", str(part)]) == 0
+        assert dev_main(["signpsbt", str(unsigned), key, "-o", str(part)]) == 0
         parts.append(str(part))
     combined = tmp_path / "combined.psbt"
     assert main(["combinepsbt", *parts, "-o", str(combined)]) == 0
@@ -31,11 +33,11 @@ def test_cli_roundtrip(tmp_path, wallet, signer_expressions, capsys):
     assert main(["finalizepsbt", str(combined), "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["signature"] == signature and "self_verification" not in out
-    assert main(["verifymessage", "-a", address, "-s", signature, "-m", MESSAGE]) == 0
+    assert main(["verifymessage", address, signature, MESSAGE]) == 0
     assert "VALID" in capsys.readouterr().out
-    assert main(["verifymessage", "-a", address, "-s", signature, "-m", MESSAGE + "!"]) == 1
+    assert main(["verifymessage", address, signature, MESSAGE + "!"]) == 1
     assert "INVALID" in capsys.readouterr().out
-    assert main(["verifymessage", "-a", address, "-s", signature, "-m", MESSAGE, "--json"]) == 0
+    assert main(["verifymessage", address, signature, MESSAGE, "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["state"] == "valid"
     assert all(e["version"] for e in out["engines"])
@@ -44,19 +46,19 @@ def test_cli_roundtrip(tmp_path, wallet, signer_expressions, capsys):
 
 def test_cli_rejects_one_signature(tmp_path, wallet, descriptor_text, signer_expressions, capsys):
     unsigned = tmp_path / "u.psbt"
-    assert main(["createpsbt", "-d", descriptor_text, "--index", "0", "-m", MESSAGE, "-o", str(unsigned)]) == 0
+    assert main(["createpsbt", "-d", descriptor_text, wallet.derive(0).address, MESSAGE, "-o", str(unsigned)]) == 0
     part = tmp_path / "p.psbt"
-    assert dev_main(["signpsbt", str(unsigned), "-k", signer_expressions[0], "-o", str(part)]) == 0
+    assert dev_main(["signpsbt", str(unsigned), signer_expressions[0], "-o", str(part)]) == 0
     assert main(["finalizepsbt", str(part)]) == 2
     assert "need 2 valid signatures" in capsys.readouterr().err
 
 
 def test_cli_lint(capsys):
-    assert main(["lint-message", "-m", "ok message"]) == 0
-    assert main(["lint-message", "-m", " leading"]) == 1
-    assert main(["lint-message", "-m", "x"]) == 1
-    assert main(["lint-message", "-m", "a" * 331]) == 1
-    assert main(["lint-message", "-m", "tab\tand\nnewline are fine"]) == 0
+    assert main(["lint-message", "ok message"]) == 0
+    assert main(["lint-message", " leading"]) == 1
+    assert main(["lint-message", "x"]) == 1
+    assert main(["lint-message", "a" * 331]) == 1
+    assert main(["lint-message", "tab\tand\nnewline are fine"]) == 0
 
 
 def test_cli_keygen_is_deterministic_and_usable(capsys, tmp_path):
@@ -108,26 +110,26 @@ def test_cli_makewallet_and_sign_from_keygen_files(tmp_path, capsys):
     # sign with -k pointing at the keygen JSON files, sequentially, then finalize
     address = info["first_address"]
     unsigned = tmp_path / "u.psbt"
-    assert main(["createpsbt", "-w", str(wallet_file), "-a", address, "-m", MESSAGE, "-o", str(unsigned)]) == 0
+    assert main(["createpsbt", "-w", str(wallet_file), address, MESSAGE, "-o", str(unsigned)]) == 0
     a = tmp_path / "a.psbt"
     ab = tmp_path / "ab.psbt"
-    assert dev_main(["signpsbt", str(unsigned), "-k", files[0], "-o", str(a)]) == 0
-    assert dev_main(["signpsbt", str(a), "-k", files[1], "-o", str(ab)]) == 0
+    assert dev_main(["signpsbt", str(unsigned), files[0], "-o", str(a)]) == 0
+    assert dev_main(["signpsbt", str(a), files[1], "-o", str(ab)]) == 0
     assert main(["finalizepsbt", str(ab)]) == 0
     sig = capsys.readouterr().out.strip().splitlines()[0]
-    assert main(["verifymessage", "-a", address, "-s", sig, "-m", MESSAGE]) == 0
+    assert main(["verifymessage", address, sig, MESSAGE]) == 0
 
 
 def test_cli_deriveaddresses_and_getaddressinfo(tmp_path, wallet, capsys):
     cfg = tmp_path / "wallet.desc"
     cfg.write_text(wallet.to_descriptor() + "\n")
-    assert main(["deriveaddresses", "-w", str(cfg), "--range", "0", "2"]) == 0
+    assert main(["deriveaddresses", "-w", str(cfg), "0", "2"]) == 0
     lines = capsys.readouterr().out.split()
     assert lines == [wallet.derive(i).address for i in range(3)]
-    assert main(["deriveaddresses", "-w", str(cfg), "--index", "4", "--change", "--json"]) == 0
+    assert main(["deriveaddresses", "-w", str(cfg), "4", "--change", "--json"]) == 0
     rows = json.loads(capsys.readouterr().out)
     assert rows == [{"branch": 1, "index": 4, "address": wallet.derive(4, 1).address}]
-    assert main(["deriveaddresses", "-w", str(cfg), "--range", "3", "1"]) == 2
+    assert main(["deriveaddresses", "-w", str(cfg), "3", "1"]) == 2
     capsys.readouterr()
     target = wallet.derive(4, 1)
     assert main(["getaddressinfo", "-w", str(cfg), target.address]) == 0
@@ -154,16 +156,16 @@ def test_cli_wallet_options_before_subcommand(tmp_path, wallet, capsys):
     addr = wallet.derive(2).address
     assert main(["-w", str(cfg), "getaddressinfo", addr]) == 0
     assert json.loads(capsys.readouterr().out)["index"] == 2
-    assert main(["-w", str(cfg), "deriveaddresses", "--index", "2"]) == 0
+    assert main(["-w", str(cfg), "deriveaddresses", "2"]) == 0
     assert capsys.readouterr().out.strip() == addr
-    assert main(["-d", wallet.to_descriptor(), "--network", "regtest", "deriveaddresses", "--index", "2"]) == 0
+    assert main(["-d", wallet.to_descriptor(), "--network", "regtest", "deriveaddresses", "2"]) == 0
     assert capsys.readouterr().out.strip().startswith("bcrt1q")
     # the subcommand position still works and wins when both are given
     other = tmp_path / "other.desc"
     other.write_text(wallet.to_descriptor() + "\n")
-    assert main(["-w", str(tmp_path / "missing.desc"), "deriveaddresses", "-w", str(other), "--index", "2"]) == 0
+    assert main(["-w", str(tmp_path / "missing.desc"), "deriveaddresses", "-w", str(other), "2"]) == 0
     assert capsys.readouterr().out.strip() == addr
-    assert main(["deriveaddresses", "--index", "2"]) == 2
+    assert main(["deriveaddresses", "2"]) == 2
 
 
 def test_cli_verifymessage_positional_like_core(tmp_path, wallet, signer_expressions, capsys):
@@ -179,9 +181,11 @@ def test_cli_verifymessage_positional_like_core(tmp_path, wallet, signer_express
     capsys.readouterr()
     sig_file = tmp_path / "s.sig"
     sig_file.write_text(sig + "\n")
-    assert main(["verifymessage", address, "--signature-file", str(sig_file), "-m", "positional form"]) == 0
+    assert main(["verifymessage", address, "positional form", "--signature-file", str(sig_file)]) == 0
     capsys.readouterr()
-    assert main(["verifymessage", "--signature", sig, "-m", "positional form"]) == 2
+    with pytest.raises(SystemExit):  # the address is a required positional
+        main(["verifymessage", "--signature-file", str(sig_file)])
+    assert main(["verifymessage", address, sig]) == 2  # message missing
 
 
 def test_cli_engines_reports_versions(capsys):
@@ -203,15 +207,15 @@ def test_cli_p2wpkh_flow(tmp_path, capsys):
     assert dev_main(["makewallet", "--wpkh", str(key_file), str(key_file)]) == 2
     assert dev_main(["makewallet", str(key_file)]) == 2
     capsys.readouterr()
-    assert main(["-w", str(wallet_file), "deriveaddresses", "--index", "1"]) == 0
+    assert main(["-w", str(wallet_file), "deriveaddresses", "1"]) == 0
     address = capsys.readouterr().out.strip()
     assert address.startswith("bc1q") and len(address) == 42
     assert main(["-w", str(wallet_file), "getaddressinfo", address]) == 0
     info = json.loads(capsys.readouterr().out)
     assert info["ismine"] and "pubkey" in info and "sigsrequired" not in info
     unsigned, signed = tmp_path / "u.psbt", tmp_path / "s.psbt"
-    assert main(["-w", str(wallet_file), "createpsbt", "-a", address, "-m", MESSAGE, "-o", str(unsigned)]) == 0
-    assert dev_main(["signpsbt", str(unsigned), "-k", str(key_file), "-o", str(signed)]) == 0
+    assert main(["-w", str(wallet_file), "createpsbt", address, MESSAGE, "-o", str(unsigned)]) == 0
+    assert dev_main(["signpsbt", str(unsigned), str(key_file), "-o", str(signed)]) == 0
     assert main(["finalizepsbt", str(signed)]) == 0
     sig = capsys.readouterr().out.strip().splitlines()[0]
     assert main(["verifymessage", address, sig, MESSAGE]) == 0
@@ -223,19 +227,19 @@ def test_cli_stdout_carries_only_the_artifact(tmp_path, wallet, signer_expressio
     cfg = tmp_path / "w.desc"
     cfg.write_text(wallet.to_descriptor() + "\n")
     address = wallet.derive(0).address
-    assert main(["-w", str(cfg), "createpsbt", "-a", address, "-m", MESSAGE]) == 0
+    assert main(["-w", str(cfg), "createpsbt", address, MESSAGE]) == 0
     out, err = capsys.readouterr()
     assert out.startswith("cHNidP8") and out.strip().count("\n") == 0 and "to_spend_txid" in err
     unsigned = tmp_path / "u.psbt"
     unsigned.write_text(out)
-    assert main(["-w", str(cfg), "createpsbt", "-a", address, "-m", MESSAGE, "-o", str(tmp_path / "u2.psbt")]) == 0
+    assert main(["-w", str(cfg), "createpsbt", address, MESSAGE, "-o", str(tmp_path / "u2.psbt")]) == 0
     assert capsys.readouterr().out == ""
-    assert dev_main(["signpsbt", str(unsigned), "-k", signer_expressions[0]]) == 0
+    assert dev_main(["signpsbt", str(unsigned), signer_expressions[0]]) == 0
     out, err = capsys.readouterr()
     assert out.startswith("cHNidP8") and "added 1 signature" in err
     a = tmp_path / "a.psbt"
     a.write_text(out)
-    assert dev_main(["signpsbt", str(a), "-k", signer_expressions[1], "-o", str(tmp_path / "ab.psbt")]) == 0
+    assert dev_main(["signpsbt", str(a), signer_expressions[1], "-o", str(tmp_path / "ab.psbt")]) == 0
     assert capsys.readouterr().out == ""
     assert main(["combinepsbt", str(a), str(tmp_path / "ab.psbt")]) == 0
     out, err = capsys.readouterr()

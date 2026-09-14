@@ -60,7 +60,7 @@ def cmd_sign(args) -> int:
     if not info.is_bip322 and not args.force:
         raise CLIError("refusing to sign: not a well-formed BIP-322 PSBT: " + "; ".join(info.problems))
     total = 0
-    for key in args.key:
+    for key in args.keys:
         total += sign_psbt(psbt, _read_signer_key(key))
     if total == 0:
         raise CLIError("no signatures added (key does not match any input derivation)")
@@ -90,9 +90,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", "-o", help="write the descriptor here instead of stdout")
     p.set_defaults(func=cmd_makewallet)
 
-    p = sub.add_parser("signpsbt", help="add signatures with software keys (tests / non-hardware cosigners)")
+    p = sub.add_parser("signpsbt", help="add signatures with software keys (like Bitcoin Core's signrawtransactionwithkey: PSBT then keys)")
     p.add_argument("psbt")
-    p.add_argument("--key", "-k", action="append", required=True, help="xprv, [fp/path]xprv expression, WIF, or a keygen JSON file (repeatable)")
+    p.add_argument("keys", nargs="+", metavar="KEY", help="xprv, [fp/path]xprv expression, WIF, or a keygen JSON file")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
     p.add_argument("--force", action="store_true", help="sign even if the PSBT fails the BIP-322 checks")
     _add_output_args(p)

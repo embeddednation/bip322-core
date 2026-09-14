@@ -44,7 +44,7 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
    A Coldcard exports it from the multisig wallet's Export menu, Sparrow shows
    it under wallet settings, and Bitcoin Core's `listdescriptors` prints it.
    Check it: `bip322 wallet -w wallet.desc` (policy, cosigners) and
-   `bip322 deriveaddresses -w wallet.desc --range 0 5` (compare with Sparrow).
+   `bip322 -w wallet.desc deriveaddresses 0 5` (compare with Sparrow).
    The address network follows the key encoding (xpub → mainnet, tpub →
    testnet); `--network regtest` overrides.
    `bip322 getaddressinfo -w wallet.desc bc1q...` shows how a given address
@@ -54,7 +54,7 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
 2. **Create the PSBT** for the address and message:
 
    ```sh
-   bip322 createpsbt -w wallet.desc -a bc1q... -m "Proof of control, 2026-09-11" -o proof.psbt --strict-coldcard
+   bip322 -w wallet.desc createpsbt bc1q... "Proof of control, 2026-09-11" --strict-coldcard -o proof.psbt
    ```
 
    The PSBT is the BIP-322 `to_sign` transaction (version 0, one input with
@@ -91,7 +91,8 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
    bip322 verifymessage bc1q... smp... "Proof of control, 2026-09-11"
    ```
 
-   Same argument order as Bitcoin Core's RPC (`-a/-s/-m` flags work too).
+   Same argument order as Bitcoin Core's RPC; `--signature-file` /
+   `--message-file` replace the corresponding positional value.
    Every installed script engine runs by default (btclib, plus Bitcoin Core's
    interpreter through libbitcoinkernel when `py-bitcoinkernel` is installed;
    `--engines` restricts). Exit codes: 0 *valid*, 1 *invalid*, 3
@@ -113,7 +114,7 @@ To check one real signature against every reference implementation at once
 (after `refcheck/fetch.sh` and `refcheck/btcd/build.sh`):
 
 ```sh
-bip322-refcheck -a bc1q... -m "message" --signature-file proof.sig
+bip322-refcheck bc1q... "message" --signature-file proof.sig
 ```
 
 ## Walkthrough with dummy keys
@@ -126,18 +127,18 @@ By hand it is:
 ```sh
 for L in A B C; do bip322-dev keygen --label $L --seed "demo cosigner $L" > cosigner-$L.json; done
 bip322-dev makewallet -t 2 --name demo-2of3 cosigner-A.json cosigner-B.json cosigner-C.json -o wallet.desc
-bip322 deriveaddresses -w wallet.desc --range 0 2        # pick an address
-bip322 getaddressinfo -w wallet.desc bc1q...               # see how it is built
-bip322 createpsbt -w wallet.desc -a bc1q... -m "demo proof" --strict-coldcard -o proof.psbt
-bip322-dev signpsbt proof.psbt   -k cosigner-A.json -o proof-A.psbt   # "Coldcard A"
-bip322-dev signpsbt proof-A.psbt -k cosigner-B.json -o proof-AB.psbt  # "Coldcard B" (or sign proof.psbt separately and `combinepsbt`)
+bip322 -w wallet.desc deriveaddresses 0 2        # pick an address
+bip322 -w wallet.desc getaddressinfo bc1q...      # see how it is built
+bip322 -w wallet.desc createpsbt bc1q... "demo proof" --strict-coldcard -o proof.psbt
+bip322-dev signpsbt proof.psbt   cosigner-A.json -o proof-A.psbt   # "Coldcard A"
+bip322-dev signpsbt proof-A.psbt cosigner-B.json -o proof-AB.psbt  # "Coldcard B" (or sign proof.psbt separately and `combinepsbt`)
 bip322 finalizepsbt proof-AB.psbt -o proof.sig
 bip322 verifymessage bc1q... "$(cat proof.sig)" "demo proof"
 ```
 
 `makewallet` accepts keygen JSON files and `[fp/path]xpub` expressions in any
-mix and writes the checksummed descriptor. `signpsbt -k` accepts a keygen JSON
-file, a file containing the key, or the key text itself.
+mix and writes the checksummed descriptor. `bip322-dev signpsbt PSBT KEY...` accepts
+keygen JSON files, files containing a key, or key text.
 The script also runs three negative checks and `refcheck.verify_one`, which
 ends with five independent verifiers agreeing. Artifacts land in `examples/out/`.
 
@@ -176,7 +177,7 @@ third parties. The official vectors (`tests/vectors/`) cover P2WSH 2-of-2 and
 refcheck/fetch.sh                      # Core 31.1, Knots 29.4.1, Go 1.27, btcd bip-322 branch → refcheck/bin (gitignored)
 refcheck/btcd/build.sh                 # builds refcheck/btcd/btcd-bip322
 bip322-refcheck corpus                 # = python -m refcheck.run_refcheck
-bip322-refcheck -a ADDR -m MSG -s SIG  # one signature, five verifiers
+bip322-refcheck ADDR SIG MSG            # one signature, five verifiers
 ```
 
 The corpus is 42 signatures from a deterministic 2-of-3 test wallet on regtest
