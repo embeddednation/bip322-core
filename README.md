@@ -29,15 +29,17 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
 
 ## Signing with the Coldcards
 
-1. **Describe the wallet.** Either the multisig export file from a Coldcard
-   (`Name / Policy / Derivation / Format: P2WSH` + `xfp: xpub` lines) or the
-   output descriptor `wsh(sortedmulti(2,[fp/48h/0h/0h/2h]xpub/<0;1>/*,...))`.
-   Check it: `bip322ms wallet -w wallet.txt --addresses 5`.
+1. **Describe the wallet.** The canonical form is the output descriptor
+   `wsh(sortedmulti(2,[fp/48h/0h/0h/2h]xpub/<0;1>/*,...))#checksum` (what
+   Sparrow and Bitcoin Core export). A Coldcard multisig export file
+   (`Name / Policy / Derivation / Format: P2WSH` + `xfp: xpub` lines) is
+   accepted as well and converted to that descriptor on load.
+   Check it: `bip322ms wallet -w wallet.desc --addresses 5`.
 
 2. **Create the PSBT** for the address and message:
 
    ```sh
-   bip322ms create -w wallet.txt -a bc1q... -m "Proof of control, 2026-09-11" -o proof.psbt --strict-coldcard
+   bip322ms create -w wallet.desc -a bc1q... -m "Proof of control, 2026-09-11" -o proof.psbt --strict-coldcard
    ```
 
    The PSBT is the BIP-322 `to_sign` transaction (version 0, one input with
@@ -94,9 +96,9 @@ standing in for the Coldcards. By hand it is:
 
 ```sh
 for L in A B C; do bip322ms keygen --label $L --seed "demo cosigner $L" > cosigner-$L.json; done
-bip322ms makewallet -t 2 --name demo-2of3 cosigner-A.json cosigner-B.json cosigner-C.json -o wallet.txt
-bip322ms wallet -w wallet.txt --addresses 2                 # pick an address
-bip322ms create -w wallet.txt -a bc1q... -m "demo proof" --strict-coldcard -o proof.psbt
+bip322ms makewallet -t 2 --name demo-2of3 cosigner-A.json cosigner-B.json cosigner-C.json -o wallet.desc
+bip322ms wallet -w wallet.desc --addresses 2                # pick an address
+bip322ms create -w wallet.desc -a bc1q... -m "demo proof" --strict-coldcard -o proof.psbt
 bip322ms sign proof.psbt   -k cosigner-A.json -o proof-A.psbt   # "Coldcard A"
 bip322ms sign proof-A.psbt -k cosigner-B.json -o proof-AB.psbt  # "Coldcard B" (or sign proof.psbt separately and `combine`)
 bip322ms finalize proof-AB.psbt --engines btclib,kernel --signature-file proof.sig
@@ -104,9 +106,10 @@ bip322ms verify -a bc1q... -m "demo proof" --signature-file proof.sig --engines 
 ```
 
 `makewallet` accepts keygen JSON files, `[fp/path]xpub` expressions and
-Coldcard `XFP: xpub` lines in any mix, and writes either the Coldcard export
-format (default) or a descriptor (`--format descriptor`). `sign -k` accepts a
-keygen JSON file, a file containing the key, or the key text itself.
+Coldcard `XFP: xpub` lines in any mix, and writes a checksummed descriptor
+(default) or the Coldcard export format (`--format coldcard`, e.g. to enrol a
+demo wallet on a device). `sign -k` accepts a keygen JSON file, a file
+containing the key, or the key text itself.
 The script also runs three negative checks and `refcheck.verify_one`, which
 ends with five independent verifiers agreeing. Artifacts land in `examples/out/`.
 

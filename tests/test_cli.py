@@ -80,22 +80,23 @@ def test_cli_makewallet_and_sign_from_keygen_files(tmp_path, capsys):
         f = tmp_path / f"cosigner-{label}.json"
         f.write_text(capsys.readouterr().out)
         files.append(str(f))
-    wallet_file = tmp_path / "wallet.txt"
+    wallet_file = tmp_path / "wallet.desc"
     assert main(["makewallet", "-t", "2", *files, "--name", "demo", "-o", str(wallet_file)]) == 0
-    text = wallet_file.read_text()
-    assert "Policy: 2 of 3" in text and "Derivation: m/48'/0'/0'/2'" in text and "Format: P2WSH" in text
-    assert "EA34D476: xpub" in text and text.count(": xpub") == 3
+    text = wallet_file.read_text().strip()
+    assert text.startswith("wsh(sortedmulti(2,[ea34d476/48h/0h/0h/2h]xpub") and text.endswith("#tqx5n4ds")
     info = json.loads(capsys.readouterr().err)
     assert info["first_address"] == "bc1qw7ysc083rxm7094nm68hhqa2zlvfqu92xzejuwqcvcfah6gavyrs3fucvy"
-    # descriptor format from a mix of inputs: JSON file, key expression, Coldcard line
-    expr = json.loads((tmp_path / "cosigner-B.json").read_text())["xpub_expression"]
-    line = json.loads((tmp_path / "cosigner-C.json").read_text())["coldcard_line"]
-    assert main(["makewallet", "-t", "2", files[0], expr, line, "--format", "descriptor"]) == 0
-    out = capsys.readouterr().out.strip()
-    assert out.startswith("wsh(sortedmulti(2,[ea34d476/48h/0h/0h/2h]xpub") and "#" in out
     from bip322ms.wallet import MultisigWallet
 
-    assert MultisigWallet.from_descriptor(out).derive(0).address == info["first_address"]
+    assert MultisigWallet.from_descriptor(text).derive(0).address == info["first_address"]
+    # Coldcard export format from a mix of inputs: JSON file, key expression, Coldcard line
+    expr = json.loads((tmp_path / "cosigner-B.json").read_text())["xpub_expression"]
+    line = json.loads((tmp_path / "cosigner-C.json").read_text())["coldcard_line"]
+    assert main(["makewallet", "-t", "2", files[0], expr, line, "--format", "coldcard", "--name", "demo"]) == 0
+    out = capsys.readouterr().out
+    assert "Policy: 2 of 3" in out and "Derivation: m/48'/0'/0'/2'" in out and "Format: P2WSH" in out
+    assert "EA34D476: xpub" in out and out.count(": xpub") == 3
+    assert MultisigWallet.from_coldcard_config(out).to_descriptor() == text
     # duplicate cosigner and bad threshold are refused
     assert main(["makewallet", "-t", "2", files[0], files[0], files[1]]) == 2
     assert main(["makewallet", "-t", "4", *files]) == 2

@@ -18,15 +18,17 @@ for L in A B C; do
   echo "  $L: fingerprint $(field "$WORK/cosigner-$L.json" fingerprint)  $(field "$WORK/cosigner-$L.json" coldcard_line | cut -c1-40)..."
 done
 
-step "2. wallet description in Coldcard multisig-export format, built from the three cosigner files"
-run $CLI makewallet -t 2 --name demo-2of3 "$WORK"/cosigner-{A,B,C}.json -o "$WORK/wallet.txt"
-cat "$WORK/wallet.txt"
-run $CLI wallet -w "$WORK/wallet.txt" --addresses 2 > "$WORK/wallet.json"
+step "2. wallet descriptor built from the three cosigner files (a Coldcard export file works too)"
+run $CLI makewallet -t 2 --name demo-2of3 "$WORK"/cosigner-{A,B,C}.json -o "$WORK/wallet.desc"
+cat "$WORK/wallet.desc"
+echo "(same wallet as a Coldcard would export it:)"
+run $CLI makewallet -t 2 --name demo-2of3 --format coldcard "$WORK"/cosigner-{A,B,C}.json 2>/dev/null
+run $CLI wallet -w "$WORK/wallet.desc" --addresses 2 > "$WORK/wallet.json"
 $PY -c "import json;d=json.load(open('$WORK/wallet.json'));print(json.dumps({k:d[k] for k in ('policy','script','descriptor','addresses')},indent=2))"
 ADDR=$($PY -c "import json;print(json.load(open('$WORK/wallet.json'))['addresses'][0]['address'])")
 
 step "3. create the BIP-322 PSBT for address $ADDR"
-run $CLI create -w "$WORK/wallet.txt" -a "$ADDR" -m "$MSG" --strict-coldcard -o "$WORK/proof.psbt"
+run $CLI create -w "$WORK/wallet.desc" -a "$ADDR" -m "$MSG" --strict-coldcard -o "$WORK/proof.psbt"
 echo "PSBT (base64): $(cut -c1-72 "$WORK/proof.psbt")..."
 
 step "4. inspect the unsigned PSBT (the BIP-322 'PSBT signer' checks a Coldcard performs)"
