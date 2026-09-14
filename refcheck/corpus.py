@@ -54,6 +54,13 @@ class Fixture:
         self.wallet = MultisigWallet.from_descriptor(desc, network="regtest", name="refcheck-2of3")
         self.wallet_main = MultisigWallet.from_descriptor(desc, network="main")
         self.signers = [key_expression(m, private=True) for m in self.masters]
+        # a single-key P2WPKH wallet on cosigner B's seed
+        b = self.masters[1]
+        account = b.derive("m/84h/0h/0h")
+        self.wpkh_signer = f"[{b.my_fingerprint.hex()}/84h/0h/0h]{account.to_base58()}/<0;1>/*"
+        wpkh_desc = f"wpkh([{b.my_fingerprint.hex()}/84h/0h/0h]{account.to_public().to_base58()}/<0;1>/*)"
+        self.wpkh = MultisigWallet.from_descriptor(wpkh_desc, network="regtest", name="refcheck-wpkh")
+        self.wpkh_main = MultisigWallet.from_descriptor(wpkh_desc, network="main")
         # one descriptor per cosigner holding only that cosigner's private key,
         # in regtest (tprv/tpub) encoding for Bitcoin Core's regtest RPCs
         self.private_descriptors = [self._private_descriptor(i) for i in range(3)]
@@ -109,6 +116,18 @@ def build_corpus(fx: Fixture) -> list[Case]:
     cases.append(Case("pof-single-input", "valid", msg, reg, main, signature_from_psbt(fx.finalized(msg, (0, 1), 3), "pof"), "pof encoding without extra inputs"))
     psbt = fx.finalized(msg, (0, 1), 3, version=1)
     cases.append(Case("ful-version1", "inconclusive", msg, reg, main, signature_from_psbt(psbt, "ful"), "to_sign version 1 is neither 0 nor 2"))
+
+    # ---- P2WPKH ------------------------------------------------------------ #
+    wd = fx.wpkh.derive(1)
+    wreg, wmain = wd.address, fx.wpkh_main.derive(1).address
+    wpsbt = create_psbt(wd, msg, xpubs=fx.wpkh.global_xpubs())
+    assert sign_psbt(wpsbt, fx.wpkh_signer) == 1
+    finalize_psbt(wpsbt)
+    wsig = signature_from_psbt(wpsbt, "smp")
+    cases.append(Case("smp-p2wpkh", "valid", msg, wreg, wmain, wsig, "single-key wpkh wallet"))
+    cases.append(Case("ful-p2wpkh", "valid", msg, wreg, wmain, signature_from_psbt(wpsbt, "ful"), "same witness, full encoding"))
+    cases.append(Case("bad-p2wpkh-wrong-message", "invalid", msg + b"?", wreg, wmain, wsig, "message differs"))
+    cases.append(Case("bad-p2wpkh-wrong-address", "invalid", msg, fx.wpkh.derive(2).address, fx.wpkh_main.derive(2).address, wsig, "another key's address"))
 
     # ---- invalid ----------------------------------------------------------- #
     derived = fx.wallet.derive(3)

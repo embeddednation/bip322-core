@@ -209,3 +209,64 @@ def test_tampered_partial_signature_is_rejected_at_finalize(wallet, signer_expre
         psbt.inputs[0].partial_sigs[pub] = other.inputs[0].partial_sigs[pub]
     with pytest.raises(FinalizeError, match="does not verify"):
         finalize_psbt(psbt)
+
+
+# --------------------------------------------------------------------------- #
+# P2WPKH
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(scope="module")
+def wpkh(masters):
+    from bip322ms.wallet import Wallet
+    from tests.conftest import ORIGIN_PATH  # noqa: F401
+
+    master = masters[1]
+    account = master.derive("m/84h/0h/0h")
+    desc = f"wpkh([{master.my_fingerprint.hex()}/84h/0h/0h]{account.to_public().to_base58()}/<0;1>/*)"
+    signer = f"[{master.my_fingerprint.hex()}/84h/0h/0h]{account.to_base58()}/<0;1>/*"
+    return Wallet.from_descriptor(desc), signer
+
+
+def test_p2wpkh_roundtrip(wpkh, kernel_engines):
+    wallet, signer = wpkh
+    derived = wallet.derive(2)
+    psbt = create_psbt(derived, MESSAGE, xpubs=wallet.global_xpubs())
+    assert psbt.inputs[0].witness_script is None and len(psbt.inputs[0].bip32_derivations) == 1
+    info = inspect_psbt(psbt)
+    assert info.is_bip322 and info.threshold == 1 and info.pubkeys == [derived.pubkeys[0].hex()]
+    assert sign_psbt(parse_psbt(psbt.to_string()), signer) == 1
+    assert sign_psbt(psbt, signer) == 1
+    with pytest.raises(FinalizeError):
+        finalize_psbt(parse_psbt(create_psbt(derived, MESSAGE).to_string()))
+    finalize_psbt(psbt)
+    items = psbt.inputs[0].final_scriptwitness.items
+    assert len(items) == 2 and items[1] == derived.pubkeys[0] and items[0][-1] == 1
+    sig = signature_from_psbt(psbt)
+    assert sig.startswith("smp")
+    result = verify_message(derived.address, sig, MESSAGE, engines=kernel_engines)
+    assert result.ok, result.reason
+    assert verify_message(derived.address, signature_from_psbt(psbt, "ful"), MESSAGE).ok
+    assert not verify_message(wallet.derive(3).address, sig, MESSAGE).ok
+    assert not verify_message(derived.address, sig, MESSAGE + b"x").ok
+
+
+def test_p2wpkh_reproduces_official_vector_signatures():
+    """The BIP's P2WPKH vectors: our signing must produce one of the listed signatures."""
+    from embit import ec
+    from embit.script import address_to_scriptpubkey
+
+    from bip322ms.wallet import DerivedAddress
+    from tests.conftest import load_vectors
+
+    vectors = [v for v in load_vectors("basic-test-vectors.json")["simple"] if v["type"] == "p2wpkh"]
+    assert vectors
+    for v in vectors:
+        key = ec.PrivateKey.from_wif(v["private_keys"][0])
+        spk = address_to_scriptpubkey(v["address"]).data
+        derived = DerivedAddress(0, 0, v["address"], spk, None, 1, (key.get_public_key().sec(),), {})
+        psbt = create_psbt(derived, v["message"].encode())
+        assert sign_psbt(psbt, key) == 1
+        finalize_psbt(psbt)
+        ours = signature_from_psbt(psbt)
+        assert ours in v["bip322_signatures"], (v["message"], ours, v["bip322_signatures"])

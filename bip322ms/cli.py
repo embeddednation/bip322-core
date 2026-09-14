@@ -28,7 +28,7 @@ from .psbt import (
     signature_from_psbt,
 )
 from .verify import State, verify_message
-from .wallet import MultisigWallet, WalletError, cosigner_from_text, wallet_from_cosigners, wallet_from_file
+from .wallet import Wallet, WalletError, cosigner_from_text, wallet_from_cosigners, wallet_from_file
 
 
 class CLIError(Exception):
@@ -47,12 +47,12 @@ def _network(args) -> str | None:
     return getattr(args, "network", None) or getattr(args, "global_network", None)
 
 
-def _load_wallet(args) -> MultisigWallet:
+def _load_wallet(args) -> Wallet:
     """Wallet options may be given before or after the subcommand."""
     descriptor = getattr(args, "descriptor", None) or getattr(args, "global_descriptor", None)
     wallet = getattr(args, "wallet", None) or getattr(args, "global_wallet", None)
     if descriptor:
-        return MultisigWallet.from_descriptor(descriptor, network=_network(args) or "main")
+        return Wallet.from_descriptor(descriptor, network=_network(args) or "main")
     if wallet:
         return wallet_from_file(wallet, network=_network(args))
     raise CLIError("provide --wallet FILE (a wsh(sortedmulti(...)) descriptor) or --descriptor")
@@ -104,28 +104,36 @@ def cmd_deriveaddresses(args) -> int:
     return 0
 
 
-def _address_info(wallet: MultisigWallet, derived) -> dict:
+def _address_info(wallet: Wallet, derived) -> dict:
     from embit.descriptor.checksum import add_checksum
 
     concrete = wallet.descriptor.derive(derived.index, branch_index=derived.branch if wallet.num_branches > 1 else None)
-    return {
+    info = {
         "address": derived.address,
         "scriptPubKey": derived.script_pubkey.hex(),
         "ismine": True,
         "iswitness": True,
         "witness_version": 0,
         "witness_program": derived.script_pubkey[2:].hex(),
-        "script": "multisig",
-        "hex": derived.witness_script.hex(),
-        "sigsrequired": derived.threshold,
-        "pubkeys": [pk.hex() for pk in derived.pubkeys],
-        # same order as the witness script, so the two lists line up
+    }
+    if derived.witness_script is not None:
+        info.update({
+            "script": "multisig",
+            "hex": derived.witness_script.hex(),
+            "sigsrequired": derived.threshold,
+            "pubkeys": [pk.hex() for pk in derived.pubkeys],
+        })
+    else:
+        info["pubkey"] = derived.pubkeys[0].hex()
+    info.update({
+        # same order as the witness script, so the lists line up
         "hdkeypaths": {pk.hex(): derived.derivation_paths()[pk.hex()] for pk in derived.pubkeys},
         "branch": derived.branch,
         "index": derived.index,
         "desc": add_checksum(concrete.to_string()),
         "wallet_desc": wallet.to_descriptor(),
-    }
+    })
+    return info
 
 
 def cmd_getaddressinfo(args) -> int:
@@ -161,7 +169,7 @@ def cmd_create(args) -> int:
         "address": derived.address,
         "branch": derived.branch,
         "index": derived.index,
-        "policy": f"{derived.threshold} of {len(derived.pubkeys)}",
+        "policy": f"{derived.threshold} of {len(derived.pubkeys)}" if derived.witness_script is not None else "single key (p2wpkh)",
         "message_utf8": message.decode("utf-8", errors="replace"),
         "message_bytes": len(message),
         "to_spend_txid": build_to_spend(message, derived.script_pubkey).txid().hex(),
@@ -234,8 +242,13 @@ def cmd_makewallet(args) -> int:
     if len(set(fps)) != len(fps):
         raise CLIError("duplicate cosigner fingerprints: " + ", ".join(fps))
     network = _network(args) or "main"
-    name = args.name or f"bip322ms-{args.threshold}of{len(cosigners)}"
-    wallet = wallet_from_cosigners(args.threshold, cosigners, network=network, name=name)
+    if args.wpkh:
+        name = args.name or "bip322ms-wpkh"
+    else:
+        if args.threshold is None:
+            raise CLIError("--threshold is required for a multisig wallet (or use --wpkh with one key)")
+        name = args.name or f"bip322ms-{args.threshold}of{len(cosigners)}"
+    wallet = wallet_from_cosigners(args.threshold, cosigners, network=network, name=name, wpkh=args.wpkh)
     text = wallet.to_descriptor() + "\n"
     if args.output and args.output != "-":
         Path(args.output).write_text(text)
@@ -384,8 +397,8 @@ def cmd_engines(args) -> int:  # noqa: ARG001
 
 def _add_wallet_args(p: argparse.ArgumentParser) -> None:
     g = p.add_mutually_exclusive_group()
-    g.add_argument("--wallet", "-w", help="file holding the wallet's wsh(sortedmulti(...)) descriptor")
-    g.add_argument("--descriptor", "-d", help="wsh(sortedmulti(...)) descriptor text")
+    g.add_argument("--wallet", "-w", help="file holding the wallet descriptor: wsh(sortedmulti(...)) or wpkh(...)")
+    g.add_argument("--descriptor", "-d", help="descriptor text: wsh(sortedmulti(...)) or wpkh(...)")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None, help="address network (default: main)")
 
 
@@ -403,8 +416,8 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bip322ms", description="BIP-322 message signing for P2WSH multisig quorums")
     # wallet options are accepted here (before the subcommand) as well as after it
-    parser.add_argument("--wallet", "-w", dest="global_wallet", metavar="FILE", help="file holding the wallet's wsh(sortedmulti(...)) descriptor")
-    parser.add_argument("--descriptor", "-d", dest="global_descriptor", metavar="DESC", help="wsh(sortedmulti(...)) descriptor text")
+    parser.add_argument("--wallet", "-w", dest="global_wallet", metavar="FILE", help="file holding the wallet descriptor: wsh(sortedmulti(...)) or wpkh(...)")
+    parser.add_argument("--descriptor", "-d", dest="global_descriptor", metavar="DESC", help="descriptor text: wsh(sortedmulti(...)) or wpkh(...)")
     parser.add_argument("--network", dest="global_network", choices=sorted(NETWORKS), default=None, help="address network (default: main)")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -427,9 +440,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-index", type=int, default=500, help="how far to search each branch")
     p.set_defaults(func=cmd_getaddressinfo)
 
-    p = sub.add_parser("makewallet", help="write a checksummed wsh(sortedmulti(...)) descriptor from cosigner keys")
+    p = sub.add_parser("makewallet", help="write a checksummed wsh(sortedmulti(...)) or wpkh(...) descriptor from keys")
     p.add_argument("keys", nargs="+", help="cosigners: keygen JSON files or [fp/path]xpub expressions")
-    p.add_argument("--threshold", "-t", type=int, required=True, help="signatures required (the k in k-of-n)")
+    p.add_argument("--threshold", "-t", type=int, help="signatures required (the k in k-of-n); multisig only")
+    p.add_argument("--wpkh", action="store_true", help="single-key P2WPKH wallet (exactly one key, no threshold)")
     p.add_argument("--name", help="wallet name (default bip322ms-<k>of<n>)")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
     p.add_argument("--output", "-o", help="output file (default stdout)")

@@ -1,8 +1,9 @@
-"""Multisig wallet description: output descriptors and address derivation.
+"""Wallet description: output descriptors and address derivation.
 
-Only native P2WSH ``multi`` / ``sortedmulti`` descriptors are supported, with
-every key given as ``[fingerprint/origin-path]xpub/<0;1>/*`` (the form
-Sparrow, Coldcard and Bitcoin Core all export).
+Supported descriptors are native segwit only: ``wsh(multi(...))`` /
+``wsh(sortedmulti(...))`` for a multisig quorum and ``wpkh(...)`` for a single
+key, with every key given as ``[fingerprint/origin-path]xpub/<0;1>/*`` (the
+form Sparrow, Coldcard and Bitcoin Core all export).
 """
 
 from __future__ import annotations
@@ -97,9 +98,10 @@ class DerivedAddress:
     index: int
     address: str
     script_pubkey: bytes
-    witness_script: bytes
+    #: the CHECKMULTISIG script for P2WSH; None for P2WPKH
+    witness_script: bytes | None
     threshold: int
-    #: public keys in witness-script order
+    #: public keys in witness-script order (a single key for P2WPKH)
     pubkeys: tuple[bytes, ...]
     #: pubkey (33-byte SEC) -> (master fingerprint, full derivation path)
     derivations: dict[bytes, tuple[bytes, tuple[int, ...]]]
@@ -115,16 +117,28 @@ class DerivedAddress:
 # --------------------------------------------------------------------------- #
 
 
-class MultisigWallet:
-    """A native P2WSH k-of-n wallet described by an output descriptor."""
+class Wallet:
+    """A native segwit wallet described by an output descriptor.
+
+    ``kind`` is ``"p2wsh-multisig"`` for ``wsh(multi/sortedmulti(...))`` or
+    ``"p2wpkh"`` for ``wpkh(...)``.
+    """
 
     def __init__(self, descriptor: Descriptor, network: str = "main", name: str | None = None):
         if network not in NETWORKS:
             raise WalletError(f"unknown network {network!r}; expected one of {sorted(NETWORKS)}")
-        if descriptor.sh or not descriptor.wsh or descriptor.taproot or descriptor.miniscript is None:
-            raise WalletError("only native P2WSH descriptors are supported: wsh(multi(...)) / wsh(sortedmulti(...))")
-        if not descriptor.is_basic_multisig:
-            raise WalletError("only multi()/sortedmulti() scripts are supported inside wsh()")
+        if descriptor.sh or descriptor.taproot:
+            raise WalletError("only native segwit descriptors are supported: wsh(multi/sortedmulti(...)) or wpkh(...)")
+        if descriptor.miniscript is not None:
+            if not descriptor.wsh:
+                raise WalletError("bare scripts are not supported; use wsh(...)")
+            if not descriptor.is_basic_multisig:
+                raise WalletError("only multi()/sortedmulti() scripts are supported inside wsh()")
+            self.kind = "p2wsh-multisig"
+        elif descriptor.key is not None and descriptor.wpkh:
+            self.kind = "p2wpkh"
+        else:
+            raise WalletError("unsupported descriptor; use wsh(multi/sortedmulti(...)) or wpkh(...)")
         cosigners: list[Cosigner] = []
         for key in descriptor.keys:
             if not key.is_extended or key.origin is None or key.allowed_derivation is None:
@@ -144,15 +158,23 @@ class MultisigWallet:
         self.descriptor = descriptor.to_public()
         self.network = network
         self.name = name
-        self.threshold: int = descriptor.miniscript.args[0].num
-        self.sorted: bool = bool(descriptor.is_sorted)
+        if self.kind == "p2wsh-multisig":
+            self.threshold: int = descriptor.miniscript.args[0].num
+            self.sorted: bool = bool(descriptor.is_sorted)
+        else:
+            self.threshold = 1
+            self.sorted = False
         self.cosigners: list[Cosigner] = cosigners
         self.num_branches: int = descriptor.num_branches
+
+    @property
+    def is_multisig(self) -> bool:
+        return self.kind == "p2wsh-multisig"
 
     # ---- constructors ----------------------------------------------------- #
 
     @classmethod
-    def from_descriptor(cls, text: str, network: str = "main", name: str | None = None) -> "MultisigWallet":
+    def from_descriptor(cls, text: str, network: str = "main", name: str | None = None) -> "Wallet":
         text = text.strip()
         if "#" in text:
             body, _, checksum = text.partition("#")
@@ -169,9 +191,12 @@ class MultisigWallet:
     # ---- descriptor output ------------------------------------------------ #
 
     def to_descriptor(self, *, checksum: bool = True, branches: str = "<0;1>") -> str:
-        fn = "sortedmulti" if self.sorted else "multi"
         keys = ",".join(c.key_expression(self.network, branches) for c in self.cosigners)
-        text = f"wsh({fn}({self.threshold},{keys}))"
+        if self.is_multisig:
+            fn = "sortedmulti" if self.sorted else "multi"
+            text = f"wsh({fn}({self.threshold},{keys}))"
+        else:
+            text = f"wpkh({keys})"
         return add_checksum(text) if checksum else text
 
     def core_descriptors(self) -> list[str]:
@@ -187,13 +212,19 @@ class MultisigWallet:
             raise WalletError(f"descriptor has {self.num_branches} branch(es); branch {branch} does not exist")
         branch_index = branch if self.num_branches > 1 else None
         derived = self.descriptor.derive(index, branch_index=branch_index)
-        witness_script = derived.witness_script().data
         script_pubkey = derived.script_pubkey().data
         address = derived.address(NETWORKS[self.network])
         derivations: dict[bytes, tuple[bytes, tuple[int, ...]]] = {}
         for key in derived.keys:
             derivations[key.sec()] = (bytes(key.origin.fingerprint), tuple(key.origin.derivation))
-        threshold, pubkeys = parse_multisig(Script(witness_script))
+        if self.is_multisig:
+            witness_script = derived.witness_script().data
+            threshold, pubkeys = parse_multisig(Script(witness_script))
+            ordered = tuple(pk.sec() for pk in pubkeys)
+        else:
+            witness_script = None
+            threshold = 1
+            ordered = (derived.key.sec(),)
         return DerivedAddress(
             branch=branch,
             index=index,
@@ -201,7 +232,7 @@ class MultisigWallet:
             script_pubkey=script_pubkey,
             witness_script=witness_script,
             threshold=threshold,
-            pubkeys=tuple(pk.sec() for pk in pubkeys),
+            pubkeys=ordered,
             derivations=derivations,
         )
 
@@ -227,11 +258,16 @@ class MultisigWallet:
         }
 
     def describe(self) -> dict:
+        if self.is_multisig:
+            script = "wsh(sortedmulti)" if self.sorted else "wsh(multi)"
+        else:
+            script = "wpkh"
         return {
             "name": self.name,
             "network": self.network,
+            "kind": self.kind,
             "policy": f"{self.threshold} of {len(self.cosigners)}",
-            "script": "wsh(sortedmulti)" if self.sorted else "wsh(multi)",
+            "script": script,
             "descriptor": self.to_descriptor(),
             "cosigners": [
                 {"fingerprint": c.fingerprint_hex, "origin": path_to_str(c.origin_path), "xpub": c.xpub.to_base58(NETWORKS[self.network]["xpub"])}
@@ -240,14 +276,18 @@ class MultisigWallet:
         }
 
 
-def wallet_from_file(path: str, network: str | None = None) -> MultisigWallet:
+#: backwards-compatible name
+MultisigWallet = Wallet
+
+
+def wallet_from_file(path: str, network: str | None = None) -> Wallet:
     """Load a wallet from a file holding a descriptor (comment lines starting with # are ignored)."""
     with open(path, "r", encoding="utf-8") as fh:
         lines = [ln.strip() for ln in fh.read().splitlines()]
     lines = [ln for ln in lines if ln and not ln.startswith("#")]
     if len(lines) != 1:
         raise WalletError(f"{path}: expected exactly one descriptor line, found {len(lines)}")
-    return MultisigWallet.from_descriptor(lines[0], network=network or "main")
+    return Wallet.from_descriptor(lines[0], network=network or "main")
 
 
 # --------------------------------------------------------------------------- #
@@ -287,9 +327,15 @@ def cosigner_from_text(text: str) -> Cosigner:
     )
 
 
-def wallet_from_cosigners(threshold: int, cosigners: list[Cosigner], network: str = "main", name: str | None = None, sorted_keys: bool = True) -> MultisigWallet:
+def wallet_from_cosigners(threshold: int | None, cosigners: list[Cosigner], network: str = "main", name: str | None = None, sorted_keys: bool = True, wpkh: bool = False) -> Wallet:
+    keys = ",".join(c.key_expression(network) for c in cosigners)
+    if wpkh:
+        if len(cosigners) != 1:
+            raise WalletError("wpkh takes exactly one key")
+        return Wallet.from_descriptor(f"wpkh({keys})", network=network, name=name)
+    if threshold is None:
+        raise WalletError("a threshold is required for a multisig wallet")
     if not 1 <= threshold <= len(cosigners):
         raise WalletError(f"threshold {threshold} is not between 1 and {len(cosigners)}")
     fn = "sortedmulti" if sorted_keys else "multi"
-    keys = ",".join(c.key_expression(network) for c in cosigners)
-    return MultisigWallet.from_descriptor(f"wsh({fn}({threshold},{keys}))", network=network, name=name)
+    return Wallet.from_descriptor(f"wsh({fn}({threshold},{keys}))", network=network, name=name)

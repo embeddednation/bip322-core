@@ -156,7 +156,8 @@ def create_psbt(
         inp.witness_utxo = TransactionOutput(0, Script(bytes(derived.script_pubkey)))
     if utxo_mode in ("non_witness", "both"):
         inp.non_witness_utxo = to_spend
-    inp.witness_script = Script(bytes(derived.witness_script))
+    if derived.witness_script is not None:
+        inp.witness_script = Script(bytes(derived.witness_script))
     for sec, (fingerprint, path) in derived.derivations.items():
         inp.bip32_derivations[ec.PublicKey.parse(sec)] = DerivationPath(bytes(fingerprint), list(path))
     if explicit_sighash:
@@ -243,6 +244,9 @@ def inspect_psbt(psbt: BIP322PSBT, network: str = "main") -> PSBTInfo:
             info.pubkeys = [pk.sec().hex() for pk in pubkeys]
         except Exception:  # noqa: BLE001
             pass
+    elif spk is not None and Script(spk).script_type() == "p2wpkh":
+        info.threshold = 1
+        info.pubkeys = [pk.sec().hex() for pk in inp.bip32_derivations] or [pk.sec().hex() for pk in inp.partial_sigs]
     for pub, sig in inp.partial_sigs.items():
         info.partial_sigs[pub.sec().hex()] = sig[-1] if sig else -1
     info.finalized = bool(inp.final_scriptwitness) or bool(inp.final_scriptsig)
@@ -342,44 +346,59 @@ def check_partial_signature(psbt: BIP322PSBT, input_index: int, pubkey: ec.Publi
         raise FinalizeError(f"signature by {pubkey.sec().hex()} does not verify against the to_sign sighash")
 
 
+def _finalize_p2wpkh(psbt: BIP322PSBT, input_index: int, inp, spk: bytes) -> Witness:
+    program = spk[2:]
+    for pub, sig in inp.partial_sigs.items():
+        if __import__("embit").hashes.hash160(pub.sec()) != program:
+            continue
+        check_partial_signature(psbt, input_index, pub, sig)
+        return Witness([sig, pub.sec()])
+    raise FinalizeError(f"input {input_index}: no partial signature by the key of this P2WPKH address ({len(inp.partial_sigs)} present)")
+
+
 def finalize_input(psbt: BIP322PSBT, input_index: int, *, strict: bool = True) -> Witness:
-    """Build the P2WSH multisig witness for one input (BIP-174 input finalizer)."""
+    """Build the witness for one input (BIP-174 input finalizer): P2WSH multisig or P2WPKH."""
     inp = psbt.inputs[input_index]
     if inp.final_scriptwitness:
         return inp.final_scriptwitness
-    if inp.witness_script is None:
-        raise FinalizeError(f"input {input_index}: no witness_script; only P2WSH multisig inputs can be finalized")
-    try:
-        threshold, pubkeys = parse_multisig(inp.witness_script)
-    except Exception as exc:  # noqa: BLE001
-        raise FinalizeError(f"input {input_index}: witness script is not a k-of-n CHECKMULTISIG: {exc}") from exc
     spk = inp.script_pubkey
-    if spk is None or spk.data != Script(b"\x00\x20" + __import__("hashlib").sha256(inp.witness_script.data).digest()).data:
-        raise FinalizeError(f"input {input_index}: witness_script does not hash to the spent script_pubkey")
-    sigs: list[bytes] = []
-    rejected: list[str] = []
-    for pub in pubkeys:
-        sig = inp.partial_sigs.get(pub)
-        if sig is None:
-            continue
+    if spk is None:
+        raise FinalizeError(f"input {input_index}: no witness_utxo / non_witness_utxo")
+    if inp.witness_script is None:
+        if spk.script_type() != "p2wpkh":
+            raise FinalizeError(f"input {input_index}: no witness_script; only P2WSH multisig and P2WPKH inputs can be finalized")
+        witness = _finalize_p2wpkh(psbt, input_index, inp, spk.data)
+    else:
         try:
-            check_partial_signature(psbt, input_index, pub, sig)
-        except FinalizeError as exc:
-            if strict:
-                raise
-            rejected.append(str(exc))
-            continue
-        sigs.append(sig)
-        if len(sigs) == threshold:
-            break
-    if len(sigs) < threshold:
-        have = len(inp.partial_sigs)
-        detail = f" ({'; '.join(rejected)})" if rejected else ""
-        raise FinalizeError(f"input {input_index}: need {threshold} valid signatures, have {len(sigs)} of {have} partial signatures{detail}")
-    witness = Witness([b""] + sigs + [inp.witness_script.data])
+            threshold, pubkeys = parse_multisig(inp.witness_script)
+        except Exception as exc:  # noqa: BLE001
+            raise FinalizeError(f"input {input_index}: witness script is not a k-of-n CHECKMULTISIG: {exc}") from exc
+        if spk.data != Script(b"\x00\x20" + __import__("hashlib").sha256(inp.witness_script.data).digest()).data:
+            raise FinalizeError(f"input {input_index}: witness_script does not hash to the spent script_pubkey")
+        sigs: list[bytes] = []
+        rejected: list[str] = []
+        for pub in pubkeys:
+            sig = inp.partial_sigs.get(pub)
+            if sig is None:
+                continue
+            try:
+                check_partial_signature(psbt, input_index, pub, sig)
+            except FinalizeError as exc:
+                if strict:
+                    raise
+                rejected.append(str(exc))
+                continue
+            sigs.append(sig)
+            if len(sigs) == threshold:
+                break
+        if len(sigs) < threshold:
+            have = len(inp.partial_sigs)
+            detail = f" ({'; '.join(rejected)})" if rejected else ""
+            raise FinalizeError(f"input {input_index}: need {threshold} valid signatures, have {len(sigs)} of {have} partial signatures{detail}")
+        witness = Witness([b""] + sigs + [inp.witness_script.data])
     inp.final_scriptwitness = witness
     if inp.redeem_script is not None:  # sh(wsh()) - not produced by this tool but handled
-        inp.final_scriptsig = Script(Script(b"").serialize()[:0] + _push(inp.redeem_script.data))
+        inp.final_scriptsig = Script(_push(inp.redeem_script.data))
     inp.partial_sigs = OrderedDict()
     inp.sighash_type = None
     inp.redeem_script = None

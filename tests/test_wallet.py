@@ -64,6 +64,31 @@ def test_rejects_unsupported_descriptors(masters):
     with pytest.raises(WalletError):
         MultisigWallet.from_descriptor(f"sh(wsh(sortedmulti(2,{keys})))")
     with pytest.raises(WalletError):
-        MultisigWallet.from_descriptor(f"wpkh({key_expression(masters[0])})")
+        MultisigWallet.from_descriptor(f"sh(wpkh({key_expression(masters[0])}))")
+    with pytest.raises(WalletError):
+        MultisigWallet.from_descriptor(f"tr({key_expression(masters[0])})")
     with pytest.raises(WalletError):
         MultisigWallet.from_descriptor("wsh(sortedmulti(2," + ",".join(key_expression(m).split("]")[1] for m in masters) + "))")
+    with pytest.raises(WalletError):
+        MultisigWallet.from_descriptor("wpkh(" + key_expression(masters[0]).split("]")[1] + ")")
+
+
+def test_wpkh_wallet(masters):
+    from embit.hashes import hash160
+
+    from bip322ms.wallet import Wallet
+
+    master = masters[0]
+    account = master.derive("m/84h/0h/0h").to_public()
+    desc = f"wpkh([{master.my_fingerprint.hex()}/84h/0h/0h]{account.to_base58()}/<0;1>/*)"
+    wallet = Wallet.from_descriptor(desc)
+    assert wallet.kind == "p2wpkh" and not wallet.is_multisig and wallet.threshold == 1 and len(wallet.cosigners) == 1
+    assert wallet.to_descriptor().startswith("wpkh([") and "#" in wallet.to_descriptor()
+    assert Wallet.from_descriptor(wallet.to_descriptor()).to_descriptor() == wallet.to_descriptor()
+    d = wallet.derive(3, 1)
+    assert d.address.startswith("bc1q") and len(d.address) == 42
+    assert d.witness_script is None and d.threshold == 1 and len(d.pubkeys) == 1
+    assert d.script_pubkey == b"\x00\x14" + hash160(d.pubkeys[0])
+    assert d.derivations[d.pubkeys[0]] == (master.my_fingerprint, (0x80000054, 0x80000000, 0x80000000, 1, 3))
+    assert wallet.find_address(d.address, max_index=5).index == 3
+    assert wallet.describe()["script"] == "wpkh"

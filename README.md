@@ -2,9 +2,11 @@
 
 Tooling and tests for producing and verifying **BIP-322** signatures (spec v2.0.0,
 2026-06-04) for a native-segwit `wsh(sortedmulti(k, ...))` wallet, with Coldcards as
-the cosigners. It emits the *simple* (`smp`) variant by default, falls back to
-*full* (`ful`) when the BIP requires it, and verifies all three variants
-(`smp`, `ful`, `pof`).
+the cosigners; single-key `wpkh(...)` wallets are supported by the same commands.
+It emits the *simple* (`smp`) variant by default, falls back to *full* (`ful`)
+when the BIP requires it, and verifies all three variants (`smp`, `ful`, `pof`)
+for any address type the interpreters understand (the verifier is not limited
+to multisig).
 
 Three independent things live here:
 

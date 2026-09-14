@@ -185,3 +185,29 @@ def test_cli_engines_reports_versions(capsys):
     assert "btclib" in out["engines"] and out["versions"]["btclib"][:4].isdigit()
     if "kernel" in out["engines"]:
         assert out["versions"]["kernel"]["bitcoin-core"].startswith("v") and out["versions"]["kernel"]["py-bitcoinkernel"]
+
+
+def test_cli_p2wpkh_flow(tmp_path, capsys):
+    assert main(["keygen", "--seed", "single key", "--origin", "84h/0h/0h"]) == 0
+    key_file = tmp_path / "k.json"
+    key_file.write_text(capsys.readouterr().out)
+    wallet_file = tmp_path / "w.desc"
+    assert main(["makewallet", "--wpkh", str(key_file), "-o", str(wallet_file)]) == 0
+    capsys.readouterr()
+    assert wallet_file.read_text().startswith("wpkh([")
+    assert main(["makewallet", "--wpkh", str(key_file), str(key_file)]) == 2
+    assert main(["makewallet", str(key_file)]) == 2
+    capsys.readouterr()
+    assert main(["-w", str(wallet_file), "deriveaddresses", "--index", "1"]) == 0
+    address = capsys.readouterr().out.strip()
+    assert address.startswith("bc1q") and len(address) == 42
+    assert main(["-w", str(wallet_file), "getaddressinfo", address]) == 0
+    info = json.loads(capsys.readouterr().out)
+    assert info["ismine"] and "pubkey" in info and "sigsrequired" not in info
+    unsigned, signed = tmp_path / "u.psbt", tmp_path / "s.psbt"
+    assert main(["-w", str(wallet_file), "createpsbt", "-a", address, "-m", MESSAGE, "-o", str(unsigned)]) == 0
+    assert main(["signpsbt", str(unsigned), "-k", str(key_file), "-o", str(signed)]) == 0
+    assert main(["finalizepsbt", str(signed)]) == 0
+    sig = capsys.readouterr().out.strip().splitlines()[0]
+    assert main(["verifymessage", address, sig, MESSAGE]) == 0
+    assert main(["verifymessage", address, sig, MESSAGE + "!"]) == 1
