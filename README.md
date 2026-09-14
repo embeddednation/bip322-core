@@ -105,6 +105,10 @@ and shows the message, address, partial signatures and any problems; it also
 warns about metadata a hardware signer needs (witness script, key paths) and
 flags any sighash type other than ALL.
 
+`bip322 help` lists every command with its argument signature, grouped as in
+`bitcoin-cli help`; `bip322 help <command>` shows the arguments, options and
+examples of one command (`bip322-dev help` likewise).
+
 Output convention for every command: stdout carries exactly the artifact (a
 PSBT, a signature, a descriptor, a JSON report), so `> file` always works;
 `-o FILE` writes the same artifact to a file and leaves stdout empty; progress

@@ -257,3 +257,23 @@ def test_cli_stdout_carries_only_the_artifact(tmp_path, wallet, signer_expressio
     assert dev_main(["makewallet", "--wpkh", str(tmp_path / "k.json")]) == 0
     out, err = capsys.readouterr()
     assert out.startswith("wpkh(") and "first_address" in err
+
+
+def test_cli_help_command(capsys):
+    assert main(["help"]) == 0
+    out = capsys.readouterr().out
+    assert "== Wallet ==" in out and "== PSBT ==" in out and "== Verification ==" in out
+    assert 'createpsbt "address" ( "message" )' in out and 'verifymessage "address" ( "signature" "message" )' in out
+    assert 'deriveaddresses ( "index" | "start" "end" )' in out
+    assert 'combinepsbt "psbt"...' in out and "help <command>" in out
+    assert main(["help", "verifymessage"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("verifymessage ") and "Arguments:" in out and "1. address" in out and "Options:" in out
+    assert "--signature-file" in out and "Examples:" in out and "> bip322 verifymessage" in out
+    assert main(["help", "nope"]) == 2
+    assert "unknown command" in capsys.readouterr().err
+    assert dev_main(["help"]) == 0
+    out = capsys.readouterr().out
+    assert 'signpsbt "psbt" "key"...' in out
+    assert dev_main(["help", "signpsbt"]) == 0
+    assert "> bip322-dev signpsbt" in capsys.readouterr().out
