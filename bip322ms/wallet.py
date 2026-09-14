@@ -1,4 +1,4 @@
-"""Multisig wallet description: descriptors, Coldcard export files, derivation.
+"""Multisig wallet description: output descriptors and address derivation.
 
 Only native P2WSH ``multi`` / ``sortedmulti`` descriptors are supported, with
 every key given as ``[fingerprint/origin-path]xpub/<0;1>/*`` (the form
@@ -9,11 +9,9 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from dataclasses import dataclass
 from io import BytesIO
 
-from embit import ec
 from embit.bip32 import HDKey
 from embit.descriptor import Descriptor
 from embit.descriptor.arguments import Key
@@ -168,26 +166,6 @@ class MultisigWallet:
             raise WalletError(f"cannot parse descriptor: {exc}") from exc
         return cls(descriptor, network=network, name=name)
 
-    @classmethod
-    def from_coldcard_config(cls, text: str, network: str | None = None) -> "MultisigWallet":
-        config = parse_coldcard_config(text)
-        if config.format.upper() != "P2WSH":
-            raise WalletError(f"Coldcard config format {config.format!r} is not P2WSH")
-        keys = []
-        detected_network = network
-        for xfp, derivation, xpub_text in config.keys:
-            hd = _parse_xpub_any_version(xpub_text)
-            if detected_network is None:
-                detected_network = _network_from_version(hd.version)
-            xpub = hd.to_base58(NETWORKS[detected_network]["xpub"])
-            keys.append(f"[{xfp.lower()}/{path_to_str(path_from_str(derivation), prefix='')[1:]}]{xpub}/<0;1>/*")
-        detected_network = detected_network or "main"
-        descriptor = f"wsh(sortedmulti({config.threshold},{','.join(keys)}))"
-        wallet = cls.from_descriptor(descriptor, network=detected_network, name=config.name)
-        if len(wallet.cosigners) != config.total:
-            raise WalletError(f"Coldcard config says {config.total} keys but {len(wallet.cosigners)} were listed")
-        return wallet
-
     # ---- descriptor output ------------------------------------------------ #
 
     def to_descriptor(self, *, checksum: bool = True, branches: str = "<0;1>") -> str:
@@ -262,104 +240,26 @@ class MultisigWallet:
         }
 
 
-# --------------------------------------------------------------------------- #
-# Coldcard multisig export file
-# --------------------------------------------------------------------------- #
-
-
-@dataclass(frozen=True)
-class ColdcardConfig:
-    name: str | None
-    threshold: int
-    total: int
-    format: str
-    #: (xfp hex, derivation path string, xpub text)
-    keys: tuple[tuple[str, str, str], ...]
-
-
-_XFP_LINE = re.compile(r"^([0-9A-Fa-f]{8})\s*:\s*([A-Za-z0-9]+)\s*$")
-_POLICY = re.compile(r"^(\d+)\s*of\s*(\d+)$", re.IGNORECASE)
-
-
-def parse_coldcard_config(text: str) -> ColdcardConfig:
-    """Parse the ``Name/Policy/Derivation/Format`` + ``xfp: xpub`` export format."""
-    name = None
-    threshold = total = None
-    fmt = "P2WSH"
-    derivation = "m/48h/0h/0h/2h"
-    keys: list[tuple[str, str, str]] = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        match = _XFP_LINE.match(line)
-        if match:
-            keys.append((match.group(1), derivation, match.group(2)))
-            continue
-        if ":" not in line:
-            raise WalletError(f"unparseable line in Coldcard config: {line!r}")
-        key, _, value = line.partition(":")
-        key, value = key.strip().lower(), value.strip()
-        if key == "name":
-            name = value
-        elif key == "policy":
-            pm = _POLICY.match(value)
-            if not pm:
-                raise WalletError(f"bad Policy line: {value!r}")
-            threshold, total = int(pm.group(1)), int(pm.group(2))
-        elif key == "derivation":
-            derivation = value
-        elif key == "format":
-            fmt = value
-        else:
-            raise WalletError(f"unknown Coldcard config key: {key!r}")
-    if threshold is None or total is None:
-        raise WalletError("Coldcard config is missing a Policy line")
-    if not keys:
-        raise WalletError("Coldcard config lists no xpubs")
-    if len(keys) != total:
-        raise WalletError(f"Policy says {total} keys but {len(keys)} xpubs listed")
-    return ColdcardConfig(name=name, threshold=threshold, total=total, format=fmt, keys=tuple(keys))
-
-
-def _parse_xpub_any_version(text: str) -> HDKey:
-    try:
-        return HDKey.from_base58(text)
-    except Exception as exc:  # noqa: BLE001
-        raise WalletError(f"cannot parse extended key {text[:12]}...: {exc}") from exc
-
-
-def _network_from_version(version: bytes) -> str:
-    for net_name, net in NETWORKS.items():
-        for field in ("xpub", "ypub", "zpub", "Ypub", "Zpub"):
-            if net.get(field) == version:
-                return "main" if net_name == "main" else "test" if net_name == "test" else net_name
-    raise WalletError(f"unknown extended key version {version.hex()}")
-
-
 def wallet_from_file(path: str, network: str | None = None) -> MultisigWallet:
-    """Load either a descriptor (single line) or a Coldcard export file."""
+    """Load a wallet from a file holding a descriptor (comment lines starting with # are ignored)."""
     with open(path, "r", encoding="utf-8") as fh:
-        text = fh.read()
-    stripped = text.strip()
-    if stripped.startswith("wsh(") or stripped.startswith("sh("):
-        return MultisigWallet.from_descriptor(stripped, network=network or "main")
-    return MultisigWallet.from_coldcard_config(text, network=network)
+        lines = [ln.strip() for ln in fh.read().splitlines()]
+    lines = [ln for ln in lines if ln and not ln.startswith("#")]
+    if len(lines) != 1:
+        raise WalletError(f"{path}: expected exactly one descriptor line, found {len(lines)}")
+    return MultisigWallet.from_descriptor(lines[0], network=network or "main")
 
 
 # --------------------------------------------------------------------------- #
 # building a wallet description from cosigner keys
 # --------------------------------------------------------------------------- #
 
-DEFAULT_ORIGIN = "m/48h/0h/0h/2h"
-
-
-def cosigner_from_text(text: str, *, default_origin: str = DEFAULT_ORIGIN) -> Cosigner:
+def cosigner_from_text(text: str) -> Cosigner:
     """Parse one cosigner given as
 
     * a ``bip322ms keygen`` JSON file path (uses its ``xpub_expression``),
-    * a key expression ``[fingerprint/path]xpub.../<0;1>/*`` (xprv accepted, public part used),
-    * a Coldcard export line ``XFP: xpub...`` (origin = ``default_origin``).
+    * a file holding a key expression, or
+    * a key expression ``[fingerprint/path]xpub.../<0;1>/*`` (xprv accepted, public part used).
     """
     text = text.strip()
     if os.path.isfile(text):
@@ -370,14 +270,8 @@ def cosigner_from_text(text: str, *, default_origin: str = DEFAULT_ORIGIN) -> Co
             expr = data.get("xpub_expression") or data.get("xprv_expression")
             if not expr:
                 raise WalletError(f"{text}: JSON has no xpub_expression")
-            return cosigner_from_text(expr, default_origin=default_origin)
-        return cosigner_from_text(content, default_origin=default_origin)
-    match = _XFP_LINE.match(text)
-    if match:
-        xfp, xpub_text = match.groups()
-        hd = _parse_xpub_any_version(xpub_text)
-        hd = hd.to_public() if hd.is_private else hd
-        return Cosigner(bytes.fromhex(xfp), tuple(path_from_str(default_origin)), hd)
+            return cosigner_from_text(expr)
+        return cosigner_from_text(content)
     if text.startswith("["):
         try:
             key = Key.read_from(BytesIO(text.encode()))
@@ -388,28 +282,14 @@ def cosigner_from_text(text: str, *, default_origin: str = DEFAULT_ORIGIN) -> Co
         hd = key.key.to_public() if key.key.is_private else key.key
         return Cosigner(bytes(key.origin.fingerprint), tuple(key.origin.derivation), hd)
     raise WalletError(
-        f"cannot interpret {text[:24]!r} as a cosigner: give a keygen JSON file, "
-        "a [fingerprint/path]xpub expression or a Coldcard 'XFP: xpub' line"
+        f"cannot interpret {text[:24]!r} as a cosigner: give a keygen JSON file "
+        "or a [fingerprint/path]xpub expression"
     )
 
 
-def coldcard_config_text(name: str, threshold: int, cosigners: list[Cosigner], network: str = "main") -> str:
-    """Render cosigners as a Coldcard multisig export file (Format: P2WSH)."""
+def wallet_from_cosigners(threshold: int, cosigners: list[Cosigner], network: str = "main", name: str | None = None, sorted_keys: bool = True) -> MultisigWallet:
     if not 1 <= threshold <= len(cosigners):
         raise WalletError(f"threshold {threshold} is not between 1 and {len(cosigners)}")
-    lines = [f"Name: {name}", f"Policy: {threshold} of {len(cosigners)}", "Format: P2WSH"]
-    origins = {c.origin_path for c in cosigners}
-    if len(origins) == 1:
-        lines.append("Derivation: " + path_to_str(cosigners[0].origin_path, hardened_marker="'"))
-    lines.append("")
-    for c in cosigners:
-        if len(origins) > 1:
-            lines.append("Derivation: " + path_to_str(c.origin_path, hardened_marker="'"))
-        lines.append(f"{c.fingerprint_hex.upper()}: {c.xpub.to_base58(NETWORKS[network]['xpub'])}")
-    return "\n".join(lines) + "\n"
-
-
-def wallet_from_cosigners(threshold: int, cosigners: list[Cosigner], network: str = "main", name: str | None = None, sorted_keys: bool = True) -> MultisigWallet:
     fn = "sortedmulti" if sorted_keys else "multi"
     keys = ",".join(c.key_expression(network) for c in cosigners)
     return MultisigWallet.from_descriptor(f"wsh({fn}({threshold},{keys}))", network=network, name=name)

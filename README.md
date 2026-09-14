@@ -10,7 +10,7 @@ Three independent things live here:
 
 | Part | What it is |
 |---|---|
-| `bip322ms/` | The tool: build the BIP-322 PSBT, sign with software keys (tests), combine cosigner PSBTs, finalize, encode, verify. |
+| `bip322ms/` | The tool: build the BIP-322 PSBT from a wallet descriptor, sign with software keys (tests), combine cosigner PSBTs, finalize, encode, verify. |
 | `tests/` | 120 pytest cases: the official BIP-322 vectors, a full 2-of-3 roundtrip for every signer pair, negatives, CLI. |
 | `refcheck/` | Cross-checks against the reference implementations: btcd's `bip322` package, Bitcoin Knots' `verifymessage`, Bitcoin Core 31.1 as signer/finalizer, and btclib. |
 
@@ -29,11 +29,10 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
 
 ## Signing with the Coldcards
 
-1. **Describe the wallet.** The canonical form is the output descriptor
-   `wsh(sortedmulti(2,[fp/48h/0h/0h/2h]xpub/<0;1>/*,...))#checksum` (what
-   Sparrow and Bitcoin Core export). A Coldcard multisig export file
-   (`Name / Policy / Derivation / Format: P2WSH` + `xfp: xpub` lines) is
-   accepted as well and converted to that descriptor on load.
+1. **Describe the wallet.** Put the wallet's output descriptor in a file:
+   `wsh(sortedmulti(2,[fp/48h/0h/0h/2h]xpub/<0;1>/*,...))#checksum`.
+   A Coldcard exports it from the multisig wallet's Export menu, Sparrow shows
+   it under wallet settings, and Bitcoin Core's `listdescriptors` prints it.
    Check it: `bip322ms wallet -w wallet.desc --addresses 5`.
 
 2. **Create the PSBT** for the address and message:
@@ -105,11 +104,9 @@ bip322ms finalize proof-AB.psbt --engines btclib,kernel --signature-file proof.s
 bip322ms verify -a bc1q... -m "demo proof" --signature-file proof.sig --engines btclib,kernel
 ```
 
-`makewallet` accepts keygen JSON files, `[fp/path]xpub` expressions and
-Coldcard `XFP: xpub` lines in any mix, and writes a checksummed descriptor
-(default) or the Coldcard export format (`--format coldcard`, e.g. to enrol a
-demo wallet on a device). `sign -k` accepts a keygen JSON file, a file
-containing the key, or the key text itself.
+`makewallet` accepts keygen JSON files and `[fp/path]xpub` expressions in any
+mix and writes the checksummed descriptor. `sign -k` accepts a keygen JSON
+file, a file containing the key, or the key text itself.
 The script also runs three negative checks and `refcheck.verify_one`, which
 ends with five independent verifiers agreeing. Artifacts land in `examples/out/`.
 
@@ -191,7 +188,7 @@ two documented exceptions for Knots:
 ```
 bip322ms/core.py      message hash, to_spend/to_sign, smp/ful/pof encoding
 bip322ms/engines.py   btclib + libbitcoinkernel runners and the BIP-322 flag sets
-bip322ms/wallet.py    descriptor / Coldcard export parsing, derivation, address lookup
+bip322ms/wallet.py    descriptor parsing, derivation, address lookup, makewallet helpers
 bip322ms/psbt.py      PSBT creation, software signing, combine, finalize, extract
 bip322ms/verify.py    the verifier
 bip322ms/coldcard.py  Coldcard message lint

@@ -15,14 +15,12 @@ run() { printf '$ %s\n' "$*" >&2; "$@"; }
 step "1. dummy cosigner keys (deterministic seeds - never use for real funds)"
 for L in A B C; do
   run $CLI keygen --label "$L" --seed "demo cosigner $L" > "$WORK/cosigner-$L.json"
-  echo "  $L: fingerprint $(field "$WORK/cosigner-$L.json" fingerprint)  $(field "$WORK/cosigner-$L.json" coldcard_line | cut -c1-40)..."
+  echo "  $L: fingerprint $(field "$WORK/cosigner-$L.json" fingerprint)  $(field "$WORK/cosigner-$L.json" xpub_expression | cut -c1-60)..."
 done
 
-step "2. wallet descriptor built from the three cosigner files (a Coldcard export file works too)"
+step "2. wallet descriptor built from the three cosigner files (a real quorum: export it from a Coldcard or Sparrow)"
 run $CLI makewallet -t 2 --name demo-2of3 "$WORK"/cosigner-{A,B,C}.json -o "$WORK/wallet.desc"
 cat "$WORK/wallet.desc"
-echo "(same wallet as a Coldcard would export it:)"
-run $CLI makewallet -t 2 --name demo-2of3 --format coldcard "$WORK"/cosigner-{A,B,C}.json 2>/dev/null
 run $CLI wallet -w "$WORK/wallet.desc" --addresses 2 > "$WORK/wallet.json"
 $PY -c "import json;d=json.load(open('$WORK/wallet.json'));print(json.dumps({k:d[k] for k in ('policy','script','descriptor','addresses')},indent=2))"
 ADDR=$($PY -c "import json;print(json.load(open('$WORK/wallet.json'))['addresses'][0]['address'])")

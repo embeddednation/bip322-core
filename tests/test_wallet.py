@@ -1,6 +1,6 @@
 import pytest
 
-from bip322ms.wallet import MultisigWallet, WalletError, parse_coldcard_config, path_from_str, path_to_str
+from bip322ms.wallet import MultisigWallet, WalletError, path_from_str, path_to_str, wallet_from_file
 
 
 def test_paths():
@@ -22,13 +22,13 @@ def test_wallet_policy_and_descriptor_roundtrip(wallet, descriptor_text):
         MultisigWallet.from_descriptor(desc[:-1] + ("a" if desc[-1] != "a" else "b"))
 
 
-def test_coldcard_config_gives_same_wallet(coldcard_config, wallet):
-    cfg = parse_coldcard_config(coldcard_config)
-    assert cfg.threshold == 2 and cfg.total == 3 and cfg.format == "P2WSH" and cfg.name == "test-2of3"
-    cc = MultisigWallet.from_coldcard_config(coldcard_config)
-    assert cc.to_descriptor() == wallet.to_descriptor()
-    assert cc.network == "main"
-    assert cc.derive(0).address == wallet.derive(0).address
+def test_wallet_from_file_accepts_comments_and_rejects_junk(tmp_path, wallet):
+    f = tmp_path / "wallet.desc"
+    f.write_text("# my quorum\n\n" + wallet.to_descriptor() + "\n")
+    assert wallet_from_file(str(f)).to_descriptor() == wallet.to_descriptor()
+    f.write_text("Name: x\nPolicy: 2 of 3\n")
+    with pytest.raises(WalletError):
+        wallet_from_file(str(f))
 
 
 def test_derivation_is_sorted_and_complete(wallet):

@@ -5,9 +5,9 @@ from bip322ms.cli import main
 MESSAGE = "cli roundtrip message"
 
 
-def test_cli_roundtrip(tmp_path, wallet, coldcard_config, signer_expressions, capsys):
-    cfg = tmp_path / "wallet.txt"
-    cfg.write_text(coldcard_config)
+def test_cli_roundtrip(tmp_path, wallet, signer_expressions, capsys):
+    cfg = tmp_path / "wallet.desc"
+    cfg.write_text(wallet.to_descriptor() + "\n")
     address = wallet.derive(3).address
     unsigned = tmp_path / "unsigned.psbt"
     assert main(["create", "-w", str(cfg), "-a", address, "-m", MESSAGE, "-o", str(unsigned)]) == 0
@@ -60,7 +60,6 @@ def test_cli_keygen_is_deterministic_and_usable(capsys, tmp_path):
     assert first["xpub_expression"] == second["xpub_expression"]
     assert first["fingerprint"] == "ea34d476" and first["origin"] == "m/48h/0h/0h/2h"
     assert first["xprv_expression"].startswith("[ea34d476/48h/0h/0h/2h]xprv") and first["xprv_expression"].endswith("/<0;1>/*")
-    assert first["coldcard_line"].startswith("EA34D476: xpub")
     from bip322ms.wallet import MultisigWallet
 
     keys = []
@@ -89,14 +88,12 @@ def test_cli_makewallet_and_sign_from_keygen_files(tmp_path, capsys):
     from bip322ms.wallet import MultisigWallet
 
     assert MultisigWallet.from_descriptor(text).derive(0).address == info["first_address"]
-    # Coldcard export format from a mix of inputs: JSON file, key expression, Coldcard line
+    # a mix of inputs: JSON file, key expression, file holding a key expression
     expr = json.loads((tmp_path / "cosigner-B.json").read_text())["xpub_expression"]
-    line = json.loads((tmp_path / "cosigner-C.json").read_text())["coldcard_line"]
-    assert main(["makewallet", "-t", "2", files[0], expr, line, "--format", "coldcard", "--name", "demo"]) == 0
-    out = capsys.readouterr().out
-    assert "Policy: 2 of 3" in out and "Derivation: m/48'/0'/0'/2'" in out and "Format: P2WSH" in out
-    assert "EA34D476: xpub" in out and out.count(": xpub") == 3
-    assert MultisigWallet.from_coldcard_config(out).to_descriptor() == text
+    kfile = tmp_path / "c.key"
+    kfile.write_text(json.loads((tmp_path / "cosigner-C.json").read_text())["xpub_expression"] + "\n")
+    assert main(["makewallet", "-t", "2", files[0], expr, str(kfile)]) == 0
+    assert capsys.readouterr().out.strip() == text
     # duplicate cosigner and bad threshold are refused
     assert main(["makewallet", "-t", "2", files[0], files[0], files[1]]) == 2
     assert main(["makewallet", "-t", "4", *files]) == 2

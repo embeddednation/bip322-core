@@ -49,16 +49,6 @@ def signer_expressions(masters) -> list[str]:
 
 
 @pytest.fixture(scope="session")
-def coldcard_config(masters) -> str:
-    lines = ["# Coldcard Multisig setup file (exported from test)", "Name: test-2of3", "Policy: 2 of 3",
-             "Derivation: m/48'/0'/0'/2'", "Format: P2WSH", ""]
-    for m in masters:
-        account = m.derive("m/" + ORIGIN_PATH).to_public()
-        lines.append(f"{m.my_fingerprint.hex().upper()}: {account.to_base58()}")
-    return "\n".join(lines) + "\n"
-
-
-@pytest.fixture(scope="session")
 def kernel_engines() -> tuple[str, ...]:
     from bip322ms.engines import kernel_available
 
