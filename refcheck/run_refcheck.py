@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Cross-check bip322ms against independent implementations.
+"""Cross-check bip322 against independent implementations.
 
 For every case in the corpus (refcheck/corpus.py) the signature is checked by:
 
-  ours    bip322ms.verify (btclib engine + libbitcoinkernel consensus engine)
+  ours    bip322.verify (btclib engine + libbitcoinkernel consensus engine)
   btclib  btclib.bip322.verify - an independent Python implementation of the
           BIP-322 framing on top of btclib's own script engine
   btcd    the btcd BIP-322 reference package (btcsuite/btcd PR #2521), which
@@ -31,10 +31,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from bip322ms.core import build_to_spend, encode_full, encode_simple, parse_transaction  # noqa: E402
-from bip322ms.engines import available_engines  # noqa: E402
-from bip322ms.psbt import extract_tx, finalize_psbt, parse_psbt, sign_psbt  # noqa: E402
-from bip322ms.verify import State, verify_message  # noqa: E402
+from bip322.core import build_to_spend, encode_full, encode_simple, parse_transaction  # noqa: E402
+from bip322.engines import available_engines  # noqa: E402
+from bip322.psbt import extract_tx, finalize_psbt, parse_psbt, sign_psbt  # noqa: E402
+from bip322.verify import State, verify_message  # noqa: E402
 from refcheck.corpus import Case, Fixture, build_corpus  # noqa: E402
 from refcheck.daemons import Daemon, RPCError  # noqa: E402
 
@@ -191,7 +191,7 @@ def core_checks(core: Daemon, fx: Fixture) -> list[dict]:
 
         witness = list(core_tx.vin[0].witness.items)
         witness[1] = high_s(witness[1])
-        from bip322ms.core import build_to_sign
+        from bip322.core import build_to_sign
 
         bad_tx = build_to_sign(build_to_spend(message, derived.script_pubkey).txid(), witness=witness)
         bad = core.rpc("signrawtransactionwithkey", bad_tx.serialize().hex(), [], [prevtx])

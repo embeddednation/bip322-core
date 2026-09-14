@@ -1,4 +1,4 @@
-"""Command line interface for bip322ms."""
+"""Command line interface for bip322."""
 
 from __future__ import annotations
 
@@ -224,7 +224,7 @@ def cmd_sign(args) -> int:
 
 
 def _read_signer_key(text: str) -> str:
-    """``-k`` accepts a key string, a bip322ms keygen JSON file, or a file holding the key."""
+    """``-k`` accepts a key string, a bip322 keygen JSON file, or a file holding the key."""
     if not Path(text).is_file():
         return text
     content = Path(text).read_text(encoding="utf-8").strip()
@@ -243,11 +243,11 @@ def cmd_makewallet(args) -> int:
         raise CLIError("duplicate cosigner fingerprints: " + ", ".join(fps))
     network = _network(args) or "main"
     if args.wpkh:
-        name = args.name or "bip322ms-wpkh"
+        name = args.name or "bip322-wpkh"
     else:
         if args.threshold is None:
             raise CLIError("--threshold is required for a multisig wallet (or use --wpkh with one key)")
-        name = args.name or f"bip322ms-{args.threshold}of{len(cosigners)}"
+        name = args.name or f"bip322-{args.threshold}of{len(cosigners)}"
     wallet = wallet_from_cosigners(args.threshold, cosigners, network=network, name=name, wpkh=args.wpkh)
     text = wallet.to_descriptor() + "\n"
     if args.output and args.output != "-":
@@ -363,7 +363,7 @@ def cmd_keygen(args) -> int:
     from .wallet import path_from_str, path_to_str
 
     if args.seed is not None:
-        seed = hashlib.sha512(("bip322ms-keygen:" + args.seed).encode("utf-8")).digest()
+        seed = hashlib.sha512(("bip322-keygen:" + args.seed).encode("utf-8")).digest()
     else:
         seed = os.urandom(64)
     net = NETWORKS[_network(args) or "main"]
@@ -414,7 +414,7 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="bip322ms", description="BIP-322 message signing for P2WSH multisig quorums")
+    parser = argparse.ArgumentParser(prog="bip322", description="BIP-322 message signing for P2WSH multisig quorums")
     # wallet options are accepted here (before the subcommand) as well as after it
     parser.add_argument("--wallet", "-w", dest="global_wallet", metavar="FILE", help="file holding the wallet descriptor: wsh(sortedmulti(...)) or wpkh(...)")
     parser.add_argument("--descriptor", "-d", dest="global_descriptor", metavar="DESC", help="descriptor text: wsh(sortedmulti(...)) or wpkh(...)")
@@ -444,7 +444,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("keys", nargs="+", help="cosigners: keygen JSON files or [fp/path]xpub expressions")
     p.add_argument("--threshold", "-t", type=int, help="signatures required (the k in k-of-n); multisig only")
     p.add_argument("--wpkh", action="store_true", help="single-key P2WPKH wallet (exactly one key, no threshold)")
-    p.add_argument("--name", help="wallet name (default bip322ms-<k>of<n>)")
+    p.add_argument("--name", help="wallet name (default bip322-<k>of<n>)")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
     p.add_argument("--output", "-o", help="output file (default stdout)")
     p.set_defaults(func=cmd_makewallet)

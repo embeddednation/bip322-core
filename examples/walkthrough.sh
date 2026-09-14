@@ -4,10 +4,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PY=.venv/bin/python
-CLI=.venv/bin/bip322ms
+CLI=.venv/bin/bip322
 WORK=${1:-examples/out}
 rm -rf "$WORK" && mkdir -p "$WORK"
-MSG="bip322ms demo: the 2-of-3 quorum controls this address"
+MSG="bip322 demo: the 2-of-3 quorum controls this address"
 field() { $PY -c "import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])" "$1" "$2"; }
 step() { printf '\n\033[1m=== %s ===\033[0m\n' "$*"; }
 run() { printf '$ %s\n' "$*" >&2; "$@"; }

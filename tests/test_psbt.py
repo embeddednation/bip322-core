@@ -3,8 +3,8 @@ import itertools
 import pytest
 from embit.finalizer import finalize_psbt as embit_finalize
 
-from bip322ms.core import PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE, build_to_spend, encode_simple
-from bip322ms.psbt import (
+from bip322.core import PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE, build_to_spend, encode_simple
+from bip322.psbt import (
     BIP322PSBT,
     FinalizeError,
     choose_variant,
@@ -17,7 +17,7 @@ from bip322ms.psbt import (
     sign_psbt,
     signature_from_psbt,
 )
-from bip322ms.verify import State, verify_message
+from bip322.verify import State, verify_message
 from tests.helpers import finalized_psbt, signed_psbt
 
 MESSAGE = b"Proof that the 2-of-3 quorum controls this address"
@@ -218,7 +218,7 @@ def test_tampered_partial_signature_is_rejected_at_finalize(wallet, signer_expre
 
 @pytest.fixture(scope="module")
 def wpkh(masters):
-    from bip322ms.wallet import Wallet
+    from bip322.wallet import Wallet
     from tests.conftest import ORIGIN_PATH  # noqa: F401
 
     master = masters[1]
@@ -256,7 +256,7 @@ def test_p2wpkh_reproduces_official_vector_signatures():
     from embit import ec
     from embit.script import address_to_scriptpubkey
 
-    from bip322ms.wallet import DerivedAddress
+    from bip322.wallet import DerivedAddress
     from tests.conftest import load_vectors
 
     vectors = [v for v in load_vectors("basic-test-vectors.json")["simple"] if v["type"] == "p2wpkh"]

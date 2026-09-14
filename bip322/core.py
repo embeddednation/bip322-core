@@ -41,7 +41,7 @@ SIGHASH_ALL = 0x01
 
 
 class BIP322Error(Exception):
-    """Base class for errors raised by bip322ms."""
+    """Base class for errors raised by bip322."""
 
 
 class SignatureFormatError(BIP322Error):

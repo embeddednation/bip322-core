@@ -1,4 +1,4 @@
-"""bip322ms: BIP-322 message signing for P2WSH multisig quorums.
+"""bip322: BIP-322 message signing for P2WSH multisig quorums.
 
 Modules
 -------

@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT))
 
 from embit.script import Script  # noqa: E402
 
-from bip322ms.core import (  # noqa: E402
+from bip322.core import (  # noqa: E402
     PREFIX_FULL,
     PREFIX_POF,
     PREFIX_SIMPLE,
@@ -35,8 +35,8 @@ from bip322ms.core import (  # noqa: E402
     parse_transaction,
     parse_witness,
 )
-from bip322ms.engines import available_engines  # noqa: E402
-from bip322ms.verify import script_pubkey_from_address, verify_message  # noqa: E402
+from bip322.engines import available_engines  # noqa: E402
+from bip322.verify import script_pubkey_from_address, verify_message  # noqa: E402
 from refcheck.daemons import Daemon, RPCError  # noqa: E402
 from refcheck.run_refcheck import BTCD_BIN, CORE_DIR, KNOTS_DIR, OUT  # noqa: E402
 
@@ -159,7 +159,7 @@ def main(argv=None) -> int:
 
     engines = tuple(available_engines())
     ours = verify_message(args.address, signature, message, engines=engines)
-    rows = [(f"bip322ms ({'+'.join(engines)})", ours.state.value, ours.reason)]
+    rows = [(f"bip322 ({'+'.join(engines)})", ours.state.value, ours.reason)]
     rows.append(("btclib.bip322", *check_btclib(args.address, message, signature)))
     if not args.no_btcd:
         rows.append(("btcd bip322 (PR #2521)", *check_btcd(args.address, message, signature, chain)))

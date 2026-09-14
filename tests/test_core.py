@@ -2,7 +2,7 @@ import base64
 
 import pytest
 
-from bip322ms.core import (
+from bip322.core import (
     PREFIX_FULL,
     PREFIX_POF,
     PREFIX_SIMPLE,
@@ -17,7 +17,7 @@ from bip322ms.core import (
     parse_witness,
     serialize_witness,
 )
-from bip322ms.verify import script_pubkey_from_address
+from bip322.verify import script_pubkey_from_address
 from tests.conftest import load_vectors
 
 

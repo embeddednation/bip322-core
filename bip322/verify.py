@@ -2,7 +2,7 @@
 
 The framing (``to_spend`` / ``to_sign``, shape checks, variant rules and the
 SIGHASH_ALL rule) is implemented here; script evaluation is delegated to the
-engines in :mod:`bip322ms.engines`.
+engines in :mod:`bip322.engines`.
 """
 
 from __future__ import annotations

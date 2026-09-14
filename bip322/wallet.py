@@ -297,7 +297,7 @@ def wallet_from_file(path: str, network: str | None = None) -> Wallet:
 def cosigner_from_text(text: str) -> Cosigner:
     """Parse one cosigner given as
 
-    * a ``bip322ms keygen`` JSON file path (uses its ``xpub_expression``),
+    * a ``bip322 keygen`` JSON file path (uses its ``xpub_expression``),
     * a file holding a key expression, or
     * a key expression ``[fingerprint/path]xpub.../<0;1>/*`` (xprv accepted, public part used).
     """

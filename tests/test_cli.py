@@ -1,6 +1,6 @@
 import json
 
-from bip322ms.cli import main
+from bip322.cli import main
 
 MESSAGE = "cli roundtrip message"
 
@@ -63,7 +63,7 @@ def test_cli_keygen_is_deterministic_and_usable(capsys, tmp_path):
     assert first["xpub_expression"] == second["xpub_expression"]
     assert first["fingerprint"] == "ea34d476" and first["origin"] == "m/48h/0h/0h/2h"
     assert first["xprv_expression"].startswith("[ea34d476/48h/0h/0h/2h]xprv") and first["xprv_expression"].endswith("/<0;1>/*")
-    from bip322ms.wallet import MultisigWallet
+    from bip322.wallet import MultisigWallet
 
     keys = []
     for label in "ABC":
@@ -88,7 +88,7 @@ def test_cli_makewallet_and_sign_from_keygen_files(tmp_path, capsys):
     assert text.startswith("wsh(sortedmulti(2,[ea34d476/48h/0h/0h/2h]xpub") and text.endswith("#tqx5n4ds")
     info = json.loads(capsys.readouterr().err)
     assert info["first_address"] == "bc1qw7ysc083rxm7094nm68hhqa2zlvfqu92xzejuwqcvcfah6gavyrs3fucvy"
-    from bip322ms.wallet import MultisigWallet
+    from bip322.wallet import MultisigWallet
 
     assert MultisigWallet.from_descriptor(text).derive(0).address == info["first_address"]
     # a mix of inputs: JSON file, key expression, file holding a key expression
@@ -133,7 +133,7 @@ def test_cli_deriveaddresses_and_getaddressinfo(tmp_path, wallet, capsys):
     assert info["sigsrequired"] == 2 and info["pubkeys"] == [pk.hex() for pk in target.pubkeys]
     assert info["witness_program"] == target.script_pubkey[2:].hex() and info["script"] == "multisig"
     assert list(info["hdkeypaths"]) == info["pubkeys"] and all(v.endswith(":m/48h/0h/0h/2h/1/4") for v in info["hdkeypaths"].values())
-    from bip322ms.wallet import MultisigWallet
+    from bip322.wallet import MultisigWallet
     from embit.descriptor import Descriptor
 
     concrete = Descriptor.from_string(info["desc"].split("#")[0])
@@ -162,7 +162,7 @@ def test_cli_wallet_options_before_subcommand(tmp_path, wallet, capsys):
 
 
 def test_cli_verifymessage_positional_like_core(tmp_path, wallet, signer_expressions, capsys):
-    from bip322ms.psbt import signature_from_psbt
+    from bip322.psbt import signature_from_psbt
     from tests.helpers import finalized_psbt
 
     psbt = finalized_psbt(wallet, signer_expressions[:2], b"positional form")

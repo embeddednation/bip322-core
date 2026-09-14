@@ -5,9 +5,9 @@ import base64
 import pytest
 from embit.transaction import SIGHASH
 
-from bip322ms.core import build_to_sign, build_to_spend, encode_full, encode_simple, serialize_witness
-from bip322ms.psbt import create_psbt, extract_tx, signature_from_psbt
-from bip322ms.verify import State, verify_message
+from bip322.core import build_to_sign, build_to_spend, encode_full, encode_simple, serialize_witness
+from bip322.psbt import create_psbt, extract_tx, signature_from_psbt
+from bip322.verify import State, verify_message
 from tests.helpers import finalized_psbt, high_s, sign_with_sighash
 
 MESSAGE = b"negative tests"
@@ -39,7 +39,7 @@ def test_wrong_address_same_wallet(proof, wallet):
 
 
 def test_wrong_network_encoding_is_fine(proof, wallet):
-    from bip322ms.wallet import MultisigWallet
+    from bip322.wallet import MultisigWallet
 
     derived, _, sig = proof
     regtest = MultisigWallet.from_descriptor(wallet.to_descriptor(), network="regtest").derive(4)
@@ -47,7 +47,7 @@ def test_wrong_network_encoding_is_fine(proof, wallet):
 
 
 def test_high_s_signature_is_invalid_by_policy_only(proof, kernel_engines):
-    from bip322ms.engines import kernel_run
+    from bip322.engines import kernel_run
 
     derived, witness, _ = proof
     tampered = list(witness)

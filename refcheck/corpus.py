@@ -14,16 +14,16 @@ from dataclasses import dataclass, field
 from embit.networks import NETWORKS
 from embit.transaction import SIGHASH
 
-from bip322ms.core import build_to_sign, build_to_spend, encode_full, encode_simple
-from bip322ms.psbt import BIP322PSBT, create_psbt, finalize_psbt, sign_psbt, signature_from_psbt
-from bip322ms.wallet import MultisigWallet
+from bip322.core import build_to_sign, build_to_spend, encode_full, encode_simple
+from bip322.psbt import BIP322PSBT, create_psbt, finalize_psbt, sign_psbt, signature_from_psbt
+from bip322.wallet import MultisigWallet
 from tests.conftest import key_expression, master_key
 from tests.helpers import high_s, sign_with_sighash
 
 MESSAGES = {
     "hello": b"Hello World",
     "empty": b"",
-    "quorum": b"bip322ms: the 2-of-3 quorum controls this address",
+    "quorum": b"bip322: the 2-of-3 quorum controls this address",
     "utf8": "UTF-8 support: öäüéàè 测试文本 \U0001f604".encode("utf-8"),
     "max330": b"m" * 330,
     "multiline": b"line one\nline two\ttabbed",

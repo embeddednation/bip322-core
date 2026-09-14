@@ -5,14 +5,14 @@ import pathlib
 import pytest
 from embit.bip32 import HDKey
 
-from bip322ms.wallet import MultisigWallet
+from bip322.wallet import MultisigWallet
 
 VECTORS = pathlib.Path(__file__).parent / "vectors"
 ORIGIN_PATH = "48h/0h/0h/2h"
 
 
 def master_key(label: str) -> HDKey:
-    seed = hashlib.sha256(f"bip322ms-test-cosigner-{label}".encode()).digest()
+    seed = hashlib.sha256(f"bip322-test-cosigner-{label}".encode()).digest()
     seed += hashlib.sha256(label.encode()).digest()
     return HDKey.from_seed(seed)
 
@@ -50,6 +50,6 @@ def signer_expressions(masters) -> list[str]:
 
 @pytest.fixture(scope="session")
 def kernel_engines() -> tuple[str, ...]:
-    from bip322ms.engines import kernel_available
+    from bip322.engines import kernel_available
 
     return ("btclib", "kernel") if kernel_available() else ("btclib",)
