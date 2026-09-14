@@ -1,6 +1,7 @@
 import json
 
 from bip322.cli import main
+from bip322.dev.cli import main as dev_main
 
 MESSAGE = "cli roundtrip message"
 
@@ -18,7 +19,7 @@ def test_cli_roundtrip(tmp_path, wallet, signer_expressions, capsys):
     parts = []
     for i, key in enumerate(signer_expressions[:2]):
         part = tmp_path / f"part{i}.psbt"
-        assert main(["signpsbt", str(unsigned), "-k", key, "-o", str(part)]) == 0
+        assert dev_main(["signpsbt", str(unsigned), "-k", key, "-o", str(part)]) == 0
         parts.append(str(part))
     combined = tmp_path / "combined.psbt"
     assert main(["combinepsbt", *parts, "-o", str(combined)]) == 0
@@ -42,7 +43,7 @@ def test_cli_rejects_one_signature(tmp_path, wallet, descriptor_text, signer_exp
     unsigned = tmp_path / "u.psbt"
     assert main(["createpsbt", "-d", descriptor_text, "--index", "0", "-m", MESSAGE, "-o", str(unsigned)]) == 0
     part = tmp_path / "p.psbt"
-    assert main(["signpsbt", str(unsigned), "-k", signer_expressions[0], "-o", str(part)]) == 0
+    assert dev_main(["signpsbt", str(unsigned), "-k", signer_expressions[0], "-o", str(part)]) == 0
     assert main(["finalizepsbt", str(part)]) == 2
     assert "need 2 valid signatures" in capsys.readouterr().err
 
@@ -56,9 +57,9 @@ def test_cli_lint(capsys):
 
 
 def test_cli_keygen_is_deterministic_and_usable(capsys, tmp_path):
-    assert main(["keygen", "--label", "A", "--seed", "demo cosigner A"]) == 0
+    assert dev_main(["keygen", "--label", "A", "--seed", "demo cosigner A"]) == 0
     first = json.loads(capsys.readouterr().out)
-    assert main(["keygen", "--seed", "demo cosigner A"]) == 0
+    assert dev_main(["keygen", "--seed", "demo cosigner A"]) == 0
     second = json.loads(capsys.readouterr().out)
     assert first["xpub_expression"] == second["xpub_expression"]
     assert first["fingerprint"] == "ea34d476" and first["origin"] == "m/48h/0h/0h/2h"
@@ -67,23 +68,23 @@ def test_cli_keygen_is_deterministic_and_usable(capsys, tmp_path):
 
     keys = []
     for label in "ABC":
-        assert main(["keygen", "--seed", f"demo cosigner {label}"]) == 0
+        assert dev_main(["keygen", "--seed", f"demo cosigner {label}"]) == 0
         keys.append(json.loads(capsys.readouterr().out)["xpub_expression"])
     wallet = MultisigWallet.from_descriptor("wsh(sortedmulti(2," + ",".join(keys) + "))")
     assert wallet.derive(0).address == "bc1qw7ysc083rxm7094nm68hhqa2zlvfqu92xzejuwqcvcfah6gavyrs3fucvy"
-    assert main(["keygen", "--network", "regtest", "--seed", "x"]) == 0
+    assert dev_main(["keygen", "--network", "regtest", "--seed", "x"]) == 0
     assert json.loads(capsys.readouterr().out)["xpub_expression"].split("]")[1].startswith("tpub")
 
 
 def test_cli_makewallet_and_sign_from_keygen_files(tmp_path, capsys):
     files = []
     for label in "ABC":
-        assert main(["keygen", "--seed", f"demo cosigner {label}"]) == 0
+        assert dev_main(["keygen", "--seed", f"demo cosigner {label}"]) == 0
         f = tmp_path / f"cosigner-{label}.json"
         f.write_text(capsys.readouterr().out)
         files.append(str(f))
     wallet_file = tmp_path / "wallet.desc"
-    assert main(["makewallet", "-t", "2", *files, "--name", "demo", "-o", str(wallet_file)]) == 0
+    assert dev_main(["makewallet", "-t", "2", *files, "--name", "demo", "-o", str(wallet_file)]) == 0
     text = wallet_file.read_text().strip()
     assert text.startswith("wsh(sortedmulti(2,[ea34d476/48h/0h/0h/2h]xpub") and text.endswith("#tqx5n4ds")
     info = json.loads(capsys.readouterr().err)
@@ -95,11 +96,11 @@ def test_cli_makewallet_and_sign_from_keygen_files(tmp_path, capsys):
     expr = json.loads((tmp_path / "cosigner-B.json").read_text())["xpub_expression"]
     kfile = tmp_path / "c.key"
     kfile.write_text(json.loads((tmp_path / "cosigner-C.json").read_text())["xpub_expression"] + "\n")
-    assert main(["makewallet", "-t", "2", files[0], expr, str(kfile)]) == 0
+    assert dev_main(["makewallet", "-t", "2", files[0], expr, str(kfile)]) == 0
     assert capsys.readouterr().out.strip() == text
     # duplicate cosigner and bad threshold are refused
-    assert main(["makewallet", "-t", "2", files[0], files[0], files[1]]) == 2
-    assert main(["makewallet", "-t", "4", *files]) == 2
+    assert dev_main(["makewallet", "-t", "2", files[0], files[0], files[1]]) == 2
+    assert dev_main(["makewallet", "-t", "4", *files]) == 2
     capsys.readouterr()
     # sign with -k pointing at the keygen JSON files, sequentially, then finalize
     address = info["first_address"]
@@ -107,8 +108,8 @@ def test_cli_makewallet_and_sign_from_keygen_files(tmp_path, capsys):
     assert main(["createpsbt", "-w", str(wallet_file), "-a", address, "-m", MESSAGE, "-o", str(unsigned)]) == 0
     a = tmp_path / "a.psbt"
     ab = tmp_path / "ab.psbt"
-    assert main(["signpsbt", str(unsigned), "-k", files[0], "-o", str(a)]) == 0
-    assert main(["signpsbt", str(a), "-k", files[1], "-o", str(ab)]) == 0
+    assert dev_main(["signpsbt", str(unsigned), "-k", files[0], "-o", str(a)]) == 0
+    assert dev_main(["signpsbt", str(a), "-k", files[1], "-o", str(ab)]) == 0
     assert main(["finalizepsbt", str(ab)]) == 0
     sig = capsys.readouterr().out.strip().splitlines()[0]
     assert main(["verifymessage", "-a", address, "-s", sig, "-m", MESSAGE]) == 0
@@ -188,15 +189,15 @@ def test_cli_engines_reports_versions(capsys):
 
 
 def test_cli_p2wpkh_flow(tmp_path, capsys):
-    assert main(["keygen", "--seed", "single key", "--origin", "84h/0h/0h"]) == 0
+    assert dev_main(["keygen", "--seed", "single key", "--origin", "84h/0h/0h"]) == 0
     key_file = tmp_path / "k.json"
     key_file.write_text(capsys.readouterr().out)
     wallet_file = tmp_path / "w.desc"
-    assert main(["makewallet", "--wpkh", str(key_file), "-o", str(wallet_file)]) == 0
+    assert dev_main(["makewallet", "--wpkh", str(key_file), "-o", str(wallet_file)]) == 0
     capsys.readouterr()
     assert wallet_file.read_text().startswith("wpkh([")
-    assert main(["makewallet", "--wpkh", str(key_file), str(key_file)]) == 2
-    assert main(["makewallet", str(key_file)]) == 2
+    assert dev_main(["makewallet", "--wpkh", str(key_file), str(key_file)]) == 2
+    assert dev_main(["makewallet", str(key_file)]) == 2
     capsys.readouterr()
     assert main(["-w", str(wallet_file), "deriveaddresses", "--index", "1"]) == 0
     address = capsys.readouterr().out.strip()
@@ -206,7 +207,7 @@ def test_cli_p2wpkh_flow(tmp_path, capsys):
     assert info["ismine"] and "pubkey" in info and "sigsrequired" not in info
     unsigned, signed = tmp_path / "u.psbt", tmp_path / "s.psbt"
     assert main(["-w", str(wallet_file), "createpsbt", "-a", address, "-m", MESSAGE, "-o", str(unsigned)]) == 0
-    assert main(["signpsbt", str(unsigned), "-k", str(key_file), "-o", str(signed)]) == 0
+    assert dev_main(["signpsbt", str(unsigned), "-k", str(key_file), "-o", str(signed)]) == 0
     assert main(["finalizepsbt", str(signed)]) == 0
     sig = capsys.readouterr().out.strip().splitlines()[0]
     assert main(["verifymessage", address, sig, MESSAGE]) == 0

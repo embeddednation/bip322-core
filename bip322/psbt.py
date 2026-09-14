@@ -21,8 +21,6 @@ from io import BytesIO
 from typing import Iterable, Sequence
 
 from embit import ec
-from embit.bip32 import HDKey
-from embit.descriptor.arguments import Key
 from embit.finalizer import parse_multisig
 from embit.networks import NETWORKS
 from embit.psbt import PSBT, DerivationPath, InputScope
@@ -252,41 +250,6 @@ def inspect_psbt(psbt: BIP322PSBT, network: str = "main") -> PSBTInfo:
     info.finalized = bool(inp.final_scriptwitness) or bool(inp.final_scriptsig)
     info.is_bip322 = not info.problems
     return info
-
-
-# --------------------------------------------------------------------------- #
-# software signing (tests / non-hardware cosigners)
-# --------------------------------------------------------------------------- #
-
-
-def parse_signer(text: str):
-    """Accept a master xprv, a ``[fp/path]xprv`` key expression, or a WIF."""
-    text = text.strip()
-    if text.startswith("["):
-        try:
-            key = Key.read_from(BytesIO(text.encode()))
-        except Exception as exc:  # noqa: BLE001
-            raise PSBTBuildError(f"cannot parse signer key expression: {exc}") from exc
-        if not key.is_private:
-            raise PSBTBuildError("signer key expression has no private key")
-        return key
-    try:
-        return HDKey.from_base58(text)
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        return ec.PrivateKey.from_wif(text)
-    except Exception as exc:  # noqa: BLE001
-        raise PSBTBuildError("signer must be an xprv, a [fp/path]xprv expression or a WIF") from exc
-
-
-def sign_psbt(psbt: BIP322PSBT, signer, sighash: int = SIGHASH.ALL) -> int:
-    """Add partial signatures with a software key; returns the number added."""
-    if isinstance(signer, str):
-        signer = parse_signer(signer)
-    if isinstance(signer, HDKey) and not signer.is_private:
-        raise PSBTBuildError("signer is a public key")
-    return psbt.sign_with(signer, sighash)
 
 
 # --------------------------------------------------------------------------- #

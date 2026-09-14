@@ -24,11 +24,10 @@ from .psbt import (
     finalize_psbt,
     inspect_psbt,
     parse_psbt,
-    sign_psbt,
     signature_from_psbt,
 )
 from .verify import State, verify_message
-from .wallet import Wallet, WalletError, cosigner_from_text, wallet_from_cosigners, wallet_from_file
+from .wallet import Wallet, WalletError, wallet_from_file
 
 
 class CLIError(Exception):
@@ -208,58 +207,6 @@ def cmd_inspect(args) -> int:
     return 0 if info.is_bip322 else 1
 
 
-def cmd_sign(args) -> int:
-    psbt = _read_psbt(args.psbt)
-    info = inspect_psbt(psbt, network=_network(args) or "main")
-    if not info.is_bip322 and not args.force:
-        raise CLIError("refusing to sign: not a well-formed BIP-322 PSBT: " + "; ".join(info.problems))
-    total = 0
-    for key in args.key:
-        total += sign_psbt(psbt, _read_signer_key(key))
-    if total == 0:
-        raise CLIError("no signatures added (key does not match any input derivation)")
-    _write_psbt(psbt, args.output, binary=args.binary)
-    print(f"added {total} signature(s)", file=sys.stderr)
-    return 0
-
-
-def _read_signer_key(text: str) -> str:
-    """``-k`` accepts a key string, a bip322 keygen JSON file, or a file holding the key."""
-    if not Path(text).is_file():
-        return text
-    content = Path(text).read_text(encoding="utf-8").strip()
-    if content.startswith("{"):
-        data = json.loads(content)
-        if not data.get("xprv_expression"):
-            raise CLIError(f"{text}: JSON has no xprv_expression (public-only cosigner file?)")
-        return data["xprv_expression"]
-    return content
-
-
-def cmd_makewallet(args) -> int:
-    cosigners = [cosigner_from_text(k) for k in args.keys]
-    fps = [c.fingerprint_hex for c in cosigners]
-    if len(set(fps)) != len(fps):
-        raise CLIError("duplicate cosigner fingerprints: " + ", ".join(fps))
-    network = _network(args) or "main"
-    if args.wpkh:
-        name = args.name or "bip322-wpkh"
-    else:
-        if args.threshold is None:
-            raise CLIError("--threshold is required for a multisig wallet (or use --wpkh with one key)")
-        name = args.name or f"bip322-{args.threshold}of{len(cosigners)}"
-    wallet = wallet_from_cosigners(args.threshold, cosigners, network=network, name=name, wpkh=args.wpkh)
-    text = wallet.to_descriptor() + "\n"
-    if args.output and args.output != "-":
-        Path(args.output).write_text(text)
-    else:
-        sys.stdout.write(text)
-    info = wallet.describe()
-    info["first_address"] = wallet.derive(0).address
-    print(json.dumps({k: info[k] for k in ("name", "network", "policy", "script", "first_address")}, indent=2), file=sys.stderr)
-    return 0
-
-
 def cmd_combine(args) -> int:
     psbts = [_read_psbt(p) for p in args.psbts]
     combined = combine_psbts(psbts)
@@ -353,38 +300,6 @@ def cmd_lint(args) -> int:
     return 0
 
 
-def cmd_keygen(args) -> int:
-    """Generate a cosigner key set for tests and walkthroughs (never for real funds)."""
-    import hashlib
-    import os
-
-    from embit.bip32 import HDKey
-
-    from .wallet import path_from_str, path_to_str
-
-    if args.seed is not None:
-        seed = hashlib.sha512(("bip322-keygen:" + args.seed).encode("utf-8")).digest()
-    else:
-        seed = os.urandom(64)
-    net = NETWORKS[_network(args) or "main"]
-    master = HDKey.from_seed(seed, version=net["xprv"])
-    origin = path_to_str(path_from_str(args.origin), prefix="")[1:]
-    account = master.derive("m/" + origin)
-    fp = master.my_fingerprint.hex()
-    xprv = account.to_base58(net["xprv"])
-    xpub = account.to_public().to_base58(net["xpub"])
-    out = {
-        "label": args.label,
-        "warning": "test keys only; anyone with the seed text can derive them",
-        "fingerprint": fp,
-        "origin": "m/" + origin,
-        "xpub_expression": f"[{fp}/{origin}]{xpub}/<0;1>/*",
-        "xprv_expression": f"[{fp}/{origin}]{xprv}/<0;1>/*",
-    }
-    print(json.dumps(out, indent=2))
-    return 0
-
-
 def cmd_engines(args) -> int:  # noqa: ARG001
     print(json.dumps({"engines": available_engines(), "versions": engine_versions()}, indent=2))
     return 0
@@ -414,7 +329,7 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="bip322", description="BIP-322 message signing for P2WSH multisig quorums")
+    parser = argparse.ArgumentParser(prog="bip322", description="BIP-322 message signing: build, finalize and verify proofs (private-key tooling lives in bip322-dev)")
     # wallet options are accepted here (before the subcommand) as well as after it
     parser.add_argument("--wallet", "-w", dest="global_wallet", metavar="FILE", help="file holding the wallet descriptor: wsh(sortedmulti(...)) or wpkh(...)")
     parser.add_argument("--descriptor", "-d", dest="global_descriptor", metavar="DESC", help="descriptor text: wsh(sortedmulti(...)) or wpkh(...)")
@@ -440,15 +355,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-index", type=int, default=500, help="how far to search each branch")
     p.set_defaults(func=cmd_getaddressinfo)
 
-    p = sub.add_parser("makewallet", help="write a checksummed wsh(sortedmulti(...)) or wpkh(...) descriptor from keys")
-    p.add_argument("keys", nargs="+", help="cosigners: keygen JSON files or [fp/path]xpub expressions")
-    p.add_argument("--threshold", "-t", type=int, help="signatures required (the k in k-of-n); multisig only")
-    p.add_argument("--wpkh", action="store_true", help="single-key P2WPKH wallet (exactly one key, no threshold)")
-    p.add_argument("--name", help="wallet name (default bip322-<k>of<n>)")
-    p.add_argument("--network", choices=sorted(NETWORKS), default=None)
-    p.add_argument("--output", "-o", help="output file (default stdout)")
-    p.set_defaults(func=cmd_makewallet)
-
     p = sub.add_parser("createpsbt", help="create the BIP-322 to_sign PSBT for a message and a wallet address")
     _add_wallet_args(p)
     _add_message_args(p)
@@ -467,14 +373,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("psbt", help="PSBT file (base64 or binary) or - for stdin")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
     p.set_defaults(func=cmd_inspect)
-
-    p = sub.add_parser("signpsbt", help="add signatures with software keys (tests / non-hardware cosigners)")
-    p.add_argument("psbt")
-    p.add_argument("--key", "-k", action="append", required=True, help="xprv, [fp/path]xprv expression or WIF (repeatable)")
-    p.add_argument("--network", choices=sorted(NETWORKS), default=None)
-    p.add_argument("--force", action="store_true", help="sign even if the PSBT fails the BIP-322 checks")
-    _add_output_args(p)
-    p.set_defaults(func=cmd_sign)
 
     p = sub.add_parser("combinepsbt", help="merge partially signed PSBTs from the cosigners")
     p.add_argument("psbts", nargs="+")
@@ -511,13 +409,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("lint-message", help="check a message against Coldcard's display rules")
     _add_message_args(p)
     p.set_defaults(func=cmd_lint)
-
-    p = sub.add_parser("keygen", help="generate a dummy cosigner (fingerprint, xpub/xprv key expressions) for tests")
-    p.add_argument("--label", default="cosigner")
-    p.add_argument("--seed", help="derive deterministically from this text (omit for random)")
-    p.add_argument("--origin", default="48h/0h/0h/2h", help="BIP32 origin path (default: BIP-48 P2WSH multisig account 0)")
-    p.add_argument("--network", choices=sorted(NETWORKS), default=None)
-    p.set_defaults(func=cmd_keygen)
 
     p = sub.add_parser("engines", help="list available script engines")
     p.set_defaults(func=cmd_engines)

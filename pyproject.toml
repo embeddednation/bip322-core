@@ -18,6 +18,7 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 bip322 = "bip322.cli:main"
+bip322-dev = "bip322.dev.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["bip322*"]

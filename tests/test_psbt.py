@@ -4,6 +4,7 @@ import pytest
 from embit.finalizer import finalize_psbt as embit_finalize
 
 from bip322.core import PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE, build_to_spend, encode_simple
+from bip322.dev.signing import sign_psbt
 from bip322.psbt import (
     BIP322PSBT,
     FinalizeError,
@@ -14,7 +15,6 @@ from bip322.psbt import (
     finalize_psbt,
     inspect_psbt,
     parse_psbt,
-    sign_psbt,
     signature_from_psbt,
 )
 from bip322.verify import State, verify_message

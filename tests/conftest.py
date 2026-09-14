@@ -12,7 +12,7 @@ ORIGIN_PATH = "48h/0h/0h/2h"
 
 
 def master_key(label: str) -> HDKey:
-    seed = hashlib.sha256(f"bip322-test-cosigner-{label}".encode()).digest()
+    seed = hashlib.sha256(f"bip322ms-test-cosigner-{label}".encode()).digest()
     seed += hashlib.sha256(label.encode()).digest()
     return HDKey.from_seed(seed)
 

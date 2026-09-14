@@ -1,4 +1,4 @@
-# bip322 — BIP-322 message signing for a P2WSH multisig quorum
+# bip322 — BIP-322 message signing for a P2WSH multisig quorum (and P2WPKH)
 
 Tooling and tests for producing and verifying **BIP-322** signatures (spec v2.0.0,
 2026-06-04) for a native-segwit `wsh(sortedmulti(k, ...))` wallet, with Coldcards as
@@ -12,7 +12,8 @@ Three independent things live here:
 
 | Part | What it is |
 |---|---|
-| `bip322/` | The tool: build the BIP-322 PSBT from a wallet descriptor, sign with software keys (tests), combine cosigner PSBTs, finalize, encode, verify. |
+| `bip322/` | The tool: build the BIP-322 PSBT from a wallet descriptor, combine cosigner PSBTs, finalize, encode, verify. Command `bip322`. No private keys pass through it. |
+| `bip322/dev/` | Scaffolding that handles private keys: dummy cosigners, wallet assembly, software signing. Command `bip322-dev`. Not needed with hardware cosigners; kept apart so the audited surface stays small. |
 | `tests/` | 120 pytest cases: the official BIP-322 vectors, a full 2-of-3 roundtrip for every signer pair, negatives, CLI. |
 | `refcheck/` | Cross-checks against the reference implementations: btcd's `bip322` package, Bitcoin Knots' `verifymessage`, Bitcoin Core 31.1 as signer/finalizer, and btclib. |
 
@@ -101,16 +102,18 @@ To check one real signature against every reference implementation at once
 ## Walkthrough with dummy keys
 
 `examples/walkthrough.sh` runs the whole flow with three software cosigners
-standing in for the Coldcards. By hand it is:
+standing in for the Coldcards. Everything that touches a private key is a
+`bip322-dev` command; the `bip322` commands are the ones you use for real.
+By hand it is:
 
 ```sh
-for L in A B C; do bip322 keygen --label $L --seed "demo cosigner $L" > cosigner-$L.json; done
-bip322 makewallet -t 2 --name demo-2of3 cosigner-A.json cosigner-B.json cosigner-C.json -o wallet.desc
+for L in A B C; do bip322-dev keygen --label $L --seed "demo cosigner $L" > cosigner-$L.json; done
+bip322-dev makewallet -t 2 --name demo-2of3 cosigner-A.json cosigner-B.json cosigner-C.json -o wallet.desc
 bip322 deriveaddresses -w wallet.desc --range 0 2        # pick an address
 bip322 getaddressinfo -w wallet.desc bc1q...               # see how it is built
 bip322 createpsbt -w wallet.desc -a bc1q... -m "demo proof" --strict-coldcard -o proof.psbt
-bip322 signpsbt proof.psbt   -k cosigner-A.json -o proof-A.psbt   # "Coldcard A"
-bip322 signpsbt proof-A.psbt -k cosigner-B.json -o proof-AB.psbt  # "Coldcard B" (or sign proof.psbt separately and `combinepsbt`)
+bip322-dev signpsbt proof.psbt   -k cosigner-A.json -o proof-A.psbt   # "Coldcard A"
+bip322-dev signpsbt proof-A.psbt -k cosigner-B.json -o proof-AB.psbt  # "Coldcard B" (or sign proof.psbt separately and `combinepsbt`)
 bip322 finalizepsbt proof-AB.psbt --signature-file proof.sig
 bip322 verifymessage bc1q... "$(cat proof.sig)" "demo proof"
 ```
@@ -197,13 +200,16 @@ two documented exceptions for Knots:
 ## Layout
 
 ```
-bip322/core.py      message hash, to_spend/to_sign, smp/ful/pof encoding
-bip322/engines.py   btclib + libbitcoinkernel runners and the BIP-322 flag sets
-bip322/wallet.py    descriptor parsing, derivation, address lookup, makewallet helpers
-bip322/psbt.py      PSBT creation, software signing, combine, finalize, extract
-bip322/verify.py    the verifier
-bip322/coldcard.py  Coldcard message lint
-bip322/cli.py       bip322 command
+bip322/core.py        message hash, to_spend/to_sign, smp/ful/pof encoding
+bip322/engines.py     btclib + libbitcoinkernel runners and the BIP-322 flag sets
+bip322/wallet.py      descriptor parsing, derivation, address lookup
+bip322/psbt.py        PSBT creation, combine, finalize, extract
+bip322/verify.py      the verifier
+bip322/coldcard.py    Coldcard message lint
+bip322/cli.py         bip322 command
+bip322/dev/signing.py software signing (tests, non-hardware cosigners)
+bip322/dev/keys.py    dummy cosigner generation, wallet assembly from keys
+bip322/dev/cli.py     bip322-dev command (keygen, makewallet, signpsbt)
 tests/                pytest suite and official vectors
 refcheck/             reference harness (fetch.sh, btcd/, run_refcheck.py)
 ```

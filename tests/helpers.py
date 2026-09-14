@@ -2,7 +2,8 @@
 
 from embit.transaction import SIGHASH
 
-from bip322.psbt import BIP322PSBT, create_psbt, finalize_psbt, sign_psbt
+from bip322.dev.signing import sign_psbt
+from bip322.psbt import BIP322PSBT, create_psbt, finalize_psbt
 
 SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 
