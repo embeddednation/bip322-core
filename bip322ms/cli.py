@@ -13,7 +13,7 @@ from embit.networks import NETWORKS
 from . import __doc__ as _pkgdoc  # noqa: F401
 from .coldcard import lint_message_for_coldcard
 from .core import BIP322Error, build_to_spend
-from .engines import available_engines, engine_versions
+from .engines import available_engines, engine_labels, engine_versions
 from .psbt import (
     BIP322PSBT,
     FinalizeError,
@@ -319,11 +319,11 @@ def cmd_verify(args) -> int:
             print(state)  # the engine lines below say why
         else:
             print(f"{state}: {result.reason}")
-        versions = engine_versions()
+        names = engine_labels()
         labels = {
-            "btclib-required": f"{versions.get('btclib', 'btclib')}, consensus + BIP-322 required rules",
-            "kernel": f"{versions.get('kernel', 'Bitcoin Core kernel')}, consensus rules",
-            "btclib-upgradeable": f"{versions.get('btclib', 'btclib')}, + upgradeable rules",
+            "btclib-required": f"{names['btclib']}, consensus + BIP-322 required rules",
+            "kernel": f"{names.get('kernel', 'Bitcoin Core kernel')}, consensus rules",
+            "btclib-upgradeable": f"{names['btclib']}, + upgradeable rules",
         }
         for run in result.engines:
             print(f"  [{labels.get(run.engine, run.engine)}] {'ok' if run.ok else 'FAIL: ' + str(run.error)}")

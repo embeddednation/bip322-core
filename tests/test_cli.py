@@ -33,7 +33,7 @@ def test_cli_roundtrip(tmp_path, wallet, signer_expressions, capsys):
     assert "INVALID" in capsys.readouterr().out
     assert main(["verifymessage", "-a", address, "-s", signature, "-m", MESSAGE, "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["state"] == "valid" and out["engine_versions"]["btclib"].startswith("btclib ")
+    assert out["state"] == "valid" and out["engine_versions"]["btclib"][:4].isdigit()
 
 
 def test_cli_rejects_one_signature(tmp_path, wallet, descriptor_text, signer_expressions, capsys):
@@ -180,6 +180,6 @@ def test_cli_verifymessage_positional_like_core(tmp_path, wallet, signer_express
 def test_cli_engines_reports_versions(capsys):
     assert main(["engines"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert "btclib" in out["engines"] and out["versions"]["btclib"].startswith("btclib ")
+    assert "btclib" in out["engines"] and out["versions"]["btclib"][:4].isdigit()
     if "kernel" in out["engines"]:
-        assert "Bitcoin Core kernel v" in out["versions"]["kernel"] and "py-bitcoinkernel" in out["versions"]["kernel"]
+        assert out["versions"]["kernel"]["bitcoin-core"].startswith("v") and out["versions"]["kernel"]["py-bitcoinkernel"]

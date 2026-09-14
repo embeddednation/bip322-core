@@ -137,18 +137,27 @@ def kernel_core_version() -> str | None:
     return None
 
 
-def engine_versions() -> dict[str, str]:
-    """Human-readable version per engine, e.g. for reports."""
+def engine_versions() -> dict:
+    """Version per engine: ``{"btclib": "2026.9.10", "kernel": {"bitcoin-core": ..., "py-bitcoinkernel": ...}}``."""
     import importlib.metadata as metadata
 
     import btclib
 
-    versions = {"btclib": f"btclib {btclib.__version__}"}
+    versions: dict = {"btclib": btclib.__version__}
     if kernel_available():
         try:
             pkg = metadata.version("py-bitcoinkernel")
         except metadata.PackageNotFoundError:
-            pkg = "?"
-        core = kernel_core_version() or "unknown Core version"
-        versions["kernel"] = f"Bitcoin Core kernel {core} (py-bitcoinkernel {pkg})"
+            pkg = None
+        versions["kernel"] = {"bitcoin-core": kernel_core_version(), "py-bitcoinkernel": pkg}
     return versions
+
+
+def engine_labels() -> dict[str, str]:
+    """Short human-readable name with version per engine, for text output."""
+    versions = engine_versions()
+    labels = {"btclib": f"btclib {versions['btclib']}"}
+    if "kernel" in versions:
+        k = versions["kernel"]
+        labels["kernel"] = f"Bitcoin Core kernel {k.get('bitcoin-core') or '?'} (py-bitcoinkernel {k.get('py-bitcoinkernel') or '?'})"
+    return labels
