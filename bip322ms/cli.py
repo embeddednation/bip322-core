@@ -311,8 +311,13 @@ def cmd_verify(args) -> int:
         print(json.dumps(result.to_dict(), indent=2))
     else:
         print(f"{result.state.value.upper()}: {result.reason}")
+        labels = {
+            "btclib-required": "btclib, consensus + BIP-322 required rules (fail = invalid)",
+            "kernel": "Bitcoin Core kernel, consensus rules only (fail = invalid)",
+            "btclib-upgradeable": "btclib, + upgradeable rules (fail = inconclusive)",
+        }
         for run in result.engines:
-            print(f"  [{run.engine}] {'ok' if run.ok else 'FAIL: ' + str(run.error)}")
+            print(f"  [{labels.get(run.engine, run.engine)}] {'ok' if run.ok else 'FAIL: ' + str(run.error)}")
     return 0 if result.ok else 1
 
 
