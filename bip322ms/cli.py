@@ -290,14 +290,19 @@ def cmd_finalize(args) -> int:
 
 
 def cmd_verify(args) -> int:
+    address = args.address or args.pos_address
+    if not address:
+        raise CLIError("provide an address (positional or --address)")
+    if args.pos_message is not None and args.message is None and not args.message_file:
+        args.message = args.pos_message
     message = _read_message(args)
-    signature = args.signature
+    signature = args.signature or args.pos_signature
     if args.signature_file:
         signature = Path(args.signature_file).read_text().strip()
     if signature is None:
-        raise CLIError("provide --signature or --signature-file")
+        raise CLIError("provide a signature (positional, --signature or --signature-file)")
     result = verify_message(
-        args.address,
+        address,
         signature,
         message,
         engines=args.engines.split(","),
@@ -420,7 +425,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", "-o", help="output file (default stdout)")
     p.set_defaults(func=cmd_makewallet)
 
-    p = sub.add_parser("create", help="create the BIP-322 PSBT for a message and a wallet address")
+    p = sub.add_parser("createpsbt", help="create the BIP-322 to_sign PSBT for a message and a wallet address")
     _add_wallet_args(p)
     _add_message_args(p)
     p.add_argument("--address", "-a", help="the wallet address to sign for (searched in the wallet)")
@@ -434,12 +439,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_output_args(p)
     p.set_defaults(func=cmd_create)
 
-    p = sub.add_parser("inspect", help="check whether a PSBT is a BIP-322 PSBT and show its state")
+    p = sub.add_parser("analyzepsbt", help="report whether a PSBT is a BIP-322 PSBT, its state and what is missing")
     p.add_argument("psbt", help="PSBT file (base64 or binary) or - for stdin")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
     p.set_defaults(func=cmd_inspect)
 
-    p = sub.add_parser("sign", help="add signatures with software keys (tests / non-hardware cosigners)")
+    p = sub.add_parser("signpsbt", help="add signatures with software keys (tests / non-hardware cosigners)")
     p.add_argument("psbt")
     p.add_argument("--key", "-k", action="append", required=True, help="xprv, [fp/path]xprv expression or WIF (repeatable)")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
@@ -447,13 +452,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_output_args(p)
     p.set_defaults(func=cmd_sign)
 
-    p = sub.add_parser("combine", help="merge partially signed PSBTs from the cosigners")
+    p = sub.add_parser("combinepsbt", help="merge partially signed PSBTs from the cosigners")
     p.add_argument("psbts", nargs="+")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
     _add_output_args(p)
     p.set_defaults(func=cmd_combine)
 
-    p = sub.add_parser("finalize", help="finalize a signed PSBT and print the BIP-322 signature")
+    p = sub.add_parser("finalizepsbt", help="finalize a signed PSBT and print the BIP-322 signature")
     p.add_argument("psbt")
     p.add_argument("--variant", choices=["auto", "smp", "ful", "pof"], default="auto")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
@@ -466,8 +471,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_finalize)
 
-    p = sub.add_parser("verify", help="verify a BIP-322 signature")
-    p.add_argument("--address", "-a", required=True)
+    p = sub.add_parser("verifymessage", help="verify a BIP-322 signature")
+    p.add_argument("pos_address", nargs="?", metavar="address", help="Core-style positional form: address signature message")
+    p.add_argument("pos_signature", nargs="?", metavar="signature")
+    p.add_argument("pos_message", nargs="?", metavar="message")
+    p.add_argument("--address", "-a")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--signature", "-s")
     g.add_argument("--signature-file")

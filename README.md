@@ -42,7 +42,7 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
 2. **Create the PSBT** for the address and message:
 
    ```sh
-   bip322ms create -w wallet.desc -a bc1q... -m "Proof of control, 2026-09-11" -o proof.psbt --strict-coldcard
+   bip322ms createpsbt -w wallet.desc -a bc1q... -m "Proof of control, 2026-09-11" -o proof.psbt --strict-coldcard
    ```
 
    The PSBT is the BIP-322 `to_sign` transaction (version 0, one input with
@@ -64,25 +64,25 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
 4. **Combine and finalize:**
 
    ```sh
-   bip322ms combine proof-ccA.psbt proof-ccB.psbt -o proof-combined.psbt
-   bip322ms finalize proof-combined.psbt --engines btclib,kernel --signature-file proof.sig
+   bip322ms combinepsbt proof-ccA.psbt proof-ccB.psbt -o proof-combined.psbt
+   bip322ms finalizepsbt proof-combined.psbt --engines btclib,kernel --signature-file proof.sig
    ```
 
-   `finalize` checks every partial signature (DER, low-S, SIGHASH_ALL, verifies
+   `finalizepsbt` checks every partial signature (DER, low-S, SIGHASH_ALL, verifies
    against the sighash), builds the witness in script order, self-verifies the
    result and prints `smp...`. Use `--variant ful` to force the full encoding.
 
 5. **Verify** (anyone, anywhere):
 
    ```sh
-   bip322ms verify -a bc1q... -m "Proof of control, 2026-09-11" -s smp... --engines btclib,kernel
+   bip322ms verifymessage -a bc1q... -m "Proof of control, 2026-09-11" -s smp... --engines btclib,kernel
    ```
 
    Exit code 0 = *valid*, 1 = *invalid* or *inconclusive*; `--json` gives the
    details (variant, `to_spend`/`to_sign` txids, locktime/sequence, sighash
    types, per-engine results).
 
-`bip322ms inspect proof.psbt` applies the BIP's *PSBT signer* detection rules
+`bip322ms analyzepsbt proof.psbt` applies the BIP's *PSBT signer* detection rules
 and shows the message, address, partial signatures and any problems.
 
 To check one real signature against every reference implementation at once
@@ -102,15 +102,15 @@ for L in A B C; do bip322ms keygen --label $L --seed "demo cosigner $L" > cosign
 bip322ms makewallet -t 2 --name demo-2of3 cosigner-A.json cosigner-B.json cosigner-C.json -o wallet.desc
 bip322ms deriveaddresses -w wallet.desc --range 0 2        # pick an address
 bip322ms getaddressinfo -w wallet.desc bc1q...               # see how it is built
-bip322ms create -w wallet.desc -a bc1q... -m "demo proof" --strict-coldcard -o proof.psbt
-bip322ms sign proof.psbt   -k cosigner-A.json -o proof-A.psbt   # "Coldcard A"
-bip322ms sign proof-A.psbt -k cosigner-B.json -o proof-AB.psbt  # "Coldcard B" (or sign proof.psbt separately and `combine`)
-bip322ms finalize proof-AB.psbt --engines btclib,kernel --signature-file proof.sig
-bip322ms verify -a bc1q... -m "demo proof" --signature-file proof.sig --engines btclib,kernel
+bip322ms createpsbt -w wallet.desc -a bc1q... -m "demo proof" --strict-coldcard -o proof.psbt
+bip322ms signpsbt proof.psbt   -k cosigner-A.json -o proof-A.psbt   # "Coldcard A"
+bip322ms signpsbt proof-A.psbt -k cosigner-B.json -o proof-AB.psbt  # "Coldcard B" (or sign proof.psbt separately and `combinepsbt`)
+bip322ms finalizepsbt proof-AB.psbt --engines btclib,kernel --signature-file proof.sig
+bip322ms verifymessage -a bc1q... -m "demo proof" --signature-file proof.sig --engines btclib,kernel
 ```
 
 `makewallet` accepts keygen JSON files and `[fp/path]xpub` expressions in any
-mix and writes the checksummed descriptor. `sign -k` accepts a keygen JSON
+mix and writes the checksummed descriptor. `signpsbt -k` accepts a keygen JSON
 file, a file containing the key, or the key text itself.
 The script also runs three negative checks and `refcheck.verify_one`, which
 ends with five independent verifiers agreeing. Artifacts land in `examples/out/`.
