@@ -109,3 +109,32 @@ def test_cli_makewallet_and_sign_from_keygen_files(tmp_path, capsys):
     assert main(["finalize", str(ab)]) == 0
     sig = capsys.readouterr().out.strip().splitlines()[0]
     assert main(["verify", "-a", address, "-s", sig, "-m", MESSAGE]) == 0
+
+
+def test_cli_deriveaddresses_and_getaddressinfo(tmp_path, wallet, capsys):
+    cfg = tmp_path / "wallet.desc"
+    cfg.write_text(wallet.to_descriptor() + "\n")
+    assert main(["deriveaddresses", "-w", str(cfg), "--range", "0", "2"]) == 0
+    lines = capsys.readouterr().out.split()
+    assert lines == [wallet.derive(i).address for i in range(3)]
+    assert main(["deriveaddresses", "-w", str(cfg), "--index", "4", "--change", "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert rows == [{"branch": 1, "index": 4, "address": wallet.derive(4, 1).address}]
+    assert main(["deriveaddresses", "-w", str(cfg), "--range", "3", "1"]) == 2
+    capsys.readouterr()
+    target = wallet.derive(4, 1)
+    assert main(["getaddressinfo", "-w", str(cfg), target.address]) == 0
+    info = json.loads(capsys.readouterr().out)
+    assert info["ismine"] and info["branch"] == 1 and info["index"] == 4
+    assert info["scriptPubKey"] == target.script_pubkey.hex() and info["hex"] == target.witness_script.hex()
+    assert info["sigsrequired"] == 2 and info["pubkeys"] == [pk.hex() for pk in target.pubkeys]
+    assert info["witness_program"] == target.script_pubkey[2:].hex() and info["script"] == "multisig"
+    assert set(info["hdkeypaths"]) == set(info["pubkeys"]) and all(v.endswith(":m/48h/0h/0h/2h/1/4") for v in info["hdkeypaths"].values())
+    from bip322ms.wallet import MultisigWallet
+    from embit.descriptor import Descriptor
+
+    concrete = Descriptor.from_string(info["desc"].split("#")[0])
+    assert concrete.address() == target.address
+    assert MultisigWallet.from_descriptor(info["wallet_desc"]).derive(4, 1).address == target.address
+    assert main(["getaddressinfo", "-w", str(cfg), wallet.derive(600).address, "--max-index", "10"]) == 1
+    assert json.loads(capsys.readouterr().out)["ismine"] is False

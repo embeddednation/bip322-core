@@ -33,7 +33,11 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
    `wsh(sortedmulti(2,[fp/48h/0h/0h/2h]xpub/<0;1>/*,...))#checksum`.
    A Coldcard exports it from the multisig wallet's Export menu, Sparrow shows
    it under wallet settings, and Bitcoin Core's `listdescriptors` prints it.
-   Check it: `bip322ms wallet -w wallet.desc --addresses 5`.
+   Check it: `bip322ms wallet -w wallet.desc` (policy, cosigners) and
+   `bip322ms deriveaddresses -w wallet.desc --range 0 5` (compare with Sparrow).
+   `bip322ms getaddressinfo -w wallet.desc bc1q...` shows how a given address
+   is built (branch/index, witness script, pubkeys, key paths), in the shape of
+   Bitcoin Core's RPC of the same name.
 
 2. **Create the PSBT** for the address and message:
 
@@ -96,7 +100,8 @@ standing in for the Coldcards. By hand it is:
 ```sh
 for L in A B C; do bip322ms keygen --label $L --seed "demo cosigner $L" > cosigner-$L.json; done
 bip322ms makewallet -t 2 --name demo-2of3 cosigner-A.json cosigner-B.json cosigner-C.json -o wallet.desc
-bip322ms wallet -w wallet.desc --addresses 2                # pick an address
+bip322ms deriveaddresses -w wallet.desc --range 0 2        # pick an address
+bip322ms getaddressinfo -w wallet.desc bc1q...               # see how it is built
 bip322ms create -w wallet.desc -a bc1q... -m "demo proof" --strict-coldcard -o proof.psbt
 bip322ms sign proof.psbt   -k cosigner-A.json -o proof-A.psbt   # "Coldcard A"
 bip322ms sign proof-A.psbt -k cosigner-B.json -o proof-AB.psbt  # "Coldcard B" (or sign proof.psbt separately and `combine`)

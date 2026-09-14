@@ -74,14 +74,61 @@ def _write_psbt(psbt: BIP322PSBT, path: str | None, binary: bool = False) -> Non
 
 def cmd_wallet(args) -> int:
     wallet = _load_wallet(args)
-    info = wallet.describe()
-    if args.addresses:
-        info["addresses"] = [
-            {"branch": b, "index": i, "address": wallet.derive(i, b).address}
-            for b in range(max(wallet.num_branches, 1))
-            for i in range(args.addresses)
-        ]
-    print(json.dumps(info, indent=2))
+    print(json.dumps(wallet.describe(), indent=2))
+    return 0
+
+
+def cmd_deriveaddresses(args) -> int:
+    """Like Bitcoin Core's deriveaddresses: addresses for an explicit index range."""
+    wallet = _load_wallet(args)
+    if args.index is not None:
+        start = end = args.index
+    else:
+        start, end = args.range
+    if start < 0 or end < start:
+        raise CLIError("range must be START END with 0 <= START <= END")
+    branch = 1 if args.change else 0
+    rows = [wallet.derive(i, branch) for i in range(start, end + 1)]
+    if args.json:
+        print(json.dumps([{"branch": d.branch, "index": d.index, "address": d.address} for d in rows], indent=2))
+    else:
+        for d in rows:
+            print(d.address)
+    return 0
+
+
+def _address_info(wallet: MultisigWallet, derived) -> dict:
+    from embit.descriptor.checksum import add_checksum
+
+    concrete = wallet.descriptor.derive(derived.index, branch_index=derived.branch if wallet.num_branches > 1 else None)
+    return {
+        "address": derived.address,
+        "scriptPubKey": derived.script_pubkey.hex(),
+        "ismine": True,
+        "iswitness": True,
+        "witness_version": 0,
+        "witness_program": derived.script_pubkey[2:].hex(),
+        "script": "multisig",
+        "hex": derived.witness_script.hex(),
+        "sigsrequired": derived.threshold,
+        "pubkeys": [pk.hex() for pk in derived.pubkeys],
+        "hdkeypaths": derived.derivation_paths(),
+        "branch": derived.branch,
+        "index": derived.index,
+        "desc": add_checksum(concrete.to_string()),
+        "wallet_desc": wallet.to_descriptor(),
+    }
+
+
+def cmd_getaddressinfo(args) -> int:
+    """Like Bitcoin Core's getaddressinfo: is this address ours, and how is it built?"""
+    wallet = _load_wallet(args)
+    derived = wallet.find_address(args.address, max_index=args.max_index)
+    if derived is None:
+        print(json.dumps({"address": args.address, "ismine": False,
+                          "reason": f"not found in the first {args.max_index + 1} receive/change indexes"}, indent=2))
+        return 1
+    print(json.dumps(_address_info(wallet, derived), indent=2))
     return 0
 
 
@@ -334,10 +381,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bip322ms", description="BIP-322 message signing for P2WSH multisig quorums")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("wallet", help="show wallet policy, descriptor and addresses")
+    p = sub.add_parser("wallet", help="show wallet policy, cosigners and descriptor")
     _add_wallet_args(p)
-    p.add_argument("--addresses", type=int, default=0, help="also list the first N receive/change addresses")
     p.set_defaults(func=cmd_wallet)
+
+    p = sub.add_parser("deriveaddresses", help="addresses for an index range (like Bitcoin Core's deriveaddresses)")
+    _add_wallet_args(p)
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--range", nargs=2, type=int, metavar=("START", "END"), default=[0, 0], help="inclusive index range (default 0 0)")
+    g.add_argument("--index", type=int, help="a single index")
+    p.add_argument("--change", action="store_true", help="change branch instead of receive")
+    p.add_argument("--json", action="store_true", help="objects with branch/index instead of bare addresses")
+    p.set_defaults(func=cmd_deriveaddresses)
+
+    p = sub.add_parser("getaddressinfo", help="look an address up in the wallet (like Bitcoin Core's getaddressinfo)")
+    _add_wallet_args(p)
+    p.add_argument("address")
+    p.add_argument("--max-index", type=int, default=500, help="how far to search each branch")
+    p.set_defaults(func=cmd_getaddressinfo)
 
     p = sub.add_parser("makewallet", help="write a checksummed wsh(sortedmulti(...)) descriptor from cosigner keys")
     p.add_argument("keys", nargs="+", help="cosigners: keygen JSON files or [fp/path]xpub expressions")

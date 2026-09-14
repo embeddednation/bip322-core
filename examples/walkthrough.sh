@@ -21,9 +21,10 @@ done
 step "2. wallet descriptor built from the three cosigner files (a real quorum: export it from a Coldcard or Sparrow)"
 run $CLI makewallet -t 2 --name demo-2of3 "$WORK"/cosigner-{A,B,C}.json -o "$WORK/wallet.desc"
 cat "$WORK/wallet.desc"
-run $CLI wallet -w "$WORK/wallet.desc" --addresses 2 > "$WORK/wallet.json"
-$PY -c "import json;d=json.load(open('$WORK/wallet.json'));print(json.dumps({k:d[k] for k in ('policy','script','descriptor','addresses')},indent=2))"
-ADDR=$($PY -c "import json;print(json.load(open('$WORK/wallet.json'))['addresses'][0]['address'])")
+run $CLI wallet -w "$WORK/wallet.desc" | $PY -c "import json,sys;d=json.load(sys.stdin);print(json.dumps({k:d[k] for k in ('policy','script','cosigners')},indent=2))"
+run $CLI deriveaddresses -w "$WORK/wallet.desc" --range 0 2
+ADDR=$($CLI deriveaddresses -w "$WORK/wallet.desc" --index 0)
+run $CLI getaddressinfo -w "$WORK/wallet.desc" "$ADDR"
 
 step "3. create the BIP-322 PSBT for address $ADDR"
 run $CLI create -w "$WORK/wallet.desc" -a "$ADDR" -m "$MSG" --strict-coldcard -o "$WORK/proof.psbt"
@@ -50,7 +51,7 @@ run $CLI verify -a "$ADDR" -m "$MSG" -s "$SIG" --engines btclib,kernel
 
 step "9. negative checks: wrong message, wrong address, one signature only"
 if $CLI verify -a "$ADDR" -m "$MSG (tampered)" -s "$SIG"; then echo "UNEXPECTED"; exit 1; fi
-ADDR2=$($PY -c "import json;print(json.load(open('$WORK/wallet.json'))['addresses'][1]['address'])")
+ADDR2=$($CLI deriveaddresses -w "$WORK/wallet.desc" --index 1)
 if $CLI verify -a "$ADDR2" -m "$MSG" -s "$SIG"; then echo "UNEXPECTED"; exit 1; fi
 if $CLI finalize "$WORK/proof-A.psbt" 2>"$WORK/finalize-A.err"; then echo "UNEXPECTED"; exit 1; else cat "$WORK/finalize-A.err"; fi
 
