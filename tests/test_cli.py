@@ -174,3 +174,11 @@ def test_cli_verifymessage_positional_like_core(tmp_path, wallet, signer_express
     assert main(["verifymessage", address, "--signature-file", str(sig_file), "-m", "positional form"]) == 0
     capsys.readouterr()
     assert main(["verifymessage", "--signature", sig, "-m", "positional form"]) == 2
+
+
+def test_cli_engines_reports_versions(capsys):
+    assert main(["engines"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "btclib" in out["engines"] and out["versions"]["btclib"].startswith("btclib ")
+    if "kernel" in out["engines"]:
+        assert "Bitcoin Core kernel v" in out["versions"]["kernel"] and "py-bitcoinkernel" in out["versions"]["kernel"]

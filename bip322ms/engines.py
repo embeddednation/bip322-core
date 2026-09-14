@@ -117,3 +117,38 @@ def available_engines() -> list[str]:
     if kernel_available():
         engines.append("kernel")
     return engines
+
+
+def kernel_core_version() -> str | None:
+    """The Bitcoin Core version bundled in libbitcoinkernel (read from the shared library)."""
+    import re
+    from pathlib import Path
+
+    try:
+        import pbk
+
+        libs = list((Path(pbk.__file__).parent / "_libs").glob("libbitcoinkernel*"))
+        for lib in libs:
+            match = re.search(rb"v\d+\.\d+\.\d+(?:rc\d+)?(?:-[A-Za-z0-9]+)?", lib.read_bytes())
+            if match:
+                return match.group(0).decode()
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def engine_versions() -> dict[str, str]:
+    """Human-readable version per engine, e.g. for reports."""
+    import importlib.metadata as metadata
+
+    import btclib
+
+    versions = {"btclib": f"btclib {btclib.__version__}"}
+    if kernel_available():
+        try:
+            pkg = metadata.version("py-bitcoinkernel")
+        except metadata.PackageNotFoundError:
+            pkg = "?"
+        core = kernel_core_version() or "unknown Core version"
+        versions["kernel"] = f"Bitcoin Core kernel {core} (py-bitcoinkernel {pkg})"
+    return versions

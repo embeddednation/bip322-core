@@ -13,7 +13,7 @@ from embit.networks import NETWORKS
 from . import __doc__ as _pkgdoc  # noqa: F401
 from .coldcard import lint_message_for_coldcard
 from .core import BIP322Error, build_to_spend
-from .engines import available_engines
+from .engines import available_engines, engine_versions
 from .psbt import (
     BIP322PSBT,
     FinalizeError,
@@ -27,7 +27,7 @@ from .psbt import (
     sign_psbt,
     signature_from_psbt,
 )
-from .verify import verify_message
+from .verify import State, verify_message
 from .wallet import MultisigWallet, WalletError, cosigner_from_text, wallet_from_cosigners, wallet_from_file
 
 
@@ -310,11 +310,18 @@ def cmd_verify(args) -> int:
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
     else:
-        print(f"{result.state.value.upper()}: {result.reason}")
+        state = result.state.value.upper()
+        if result.state is State.VALID:
+            print(state if result.reason == "valid" else f"{state} ({result.reason})")
+        elif result.state is State.INVALID and result.engines:
+            print(state)  # the engine lines below say why
+        else:
+            print(f"{state}: {result.reason}")
+        versions = engine_versions()
         labels = {
-            "btclib-required": "btclib, consensus + BIP-322 required rules (fail = invalid)",
-            "kernel": "Bitcoin Core kernel, consensus rules only (fail = invalid)",
-            "btclib-upgradeable": "btclib, + upgradeable rules (fail = inconclusive)",
+            "btclib-required": f"{versions.get('btclib', 'btclib')}, consensus + BIP-322 required rules",
+            "kernel": f"{versions.get('kernel', 'Bitcoin Core kernel')}, consensus rules",
+            "btclib-upgradeable": f"{versions.get('btclib', 'btclib')}, + upgradeable rules",
         }
         for run in result.engines:
             print(f"  [{labels.get(run.engine, run.engine)}] {'ok' if run.ok else 'FAIL: ' + str(run.error)}")
@@ -366,7 +373,7 @@ def cmd_keygen(args) -> int:
 
 
 def cmd_engines(args) -> int:  # noqa: ARG001
-    print(json.dumps({"engines": available_engines()}))
+    print(json.dumps({"engines": available_engines(), "versions": engine_versions()}, indent=2))
     return 0
 
 
