@@ -43,9 +43,10 @@ step "6. combine the two signed PSBTs"
 run $CLI combinepsbt "$WORK/proof-A.psbt" "$WORK/proof-C.psbt" -o "$WORK/proof-AC.psbt"
 
 step "7. finalize: check the partial signatures, build the witness, encode as smp"
-run $CLI finalizepsbt "$WORK/proof-AC.psbt" --signature-file "$WORK/proof.sig" --json > "$WORK/finalize.json"
-cat "$WORK/finalize.json"
+run $CLI finalizepsbt "$WORK/proof-AC.psbt" -o "$WORK/proof.sig"
 SIG=$(cat "$WORK/proof.sig")
+echo "$SIG"
+$CLI finalizepsbt "$WORK/proof-AC.psbt" --json | $PY -c "import json,sys;d=json.load(sys.stdin);d.pop('signature');print(json.dumps(d,indent=2))"
 
 step "8. verify with the tool (every installed engine: btclib policy engine + Bitcoin Core kernel engine)"
 run $CLI verifymessage "$ADDR" "$SIG" "$MSG"

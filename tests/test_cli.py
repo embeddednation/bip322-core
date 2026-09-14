@@ -24,10 +24,13 @@ def test_cli_roundtrip(tmp_path, wallet, signer_expressions, capsys):
     combined = tmp_path / "combined.psbt"
     assert main(["combinepsbt", *parts, "-o", str(combined)]) == 0
     sig_file = tmp_path / "sig.txt"
-    assert main(["finalizepsbt", str(combined), "--signature-file", str(sig_file), "--json"]) == 0
-    out = json.loads(capsys.readouterr().out)
+    assert main(["finalizepsbt", str(combined), "-o", str(sig_file)]) == 0
+    assert capsys.readouterr().out == ""  # -o given: nothing on stdout
     signature = sig_file.read_text().strip()
-    assert out["signature"] == signature and signature.startswith("smp") and "self_verification" not in out
+    assert signature.startswith("smp")
+    assert main(["finalizepsbt", str(combined), "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["signature"] == signature and "self_verification" not in out
     assert main(["verifymessage", "-a", address, "-s", signature, "-m", MESSAGE]) == 0
     assert "VALID" in capsys.readouterr().out
     assert main(["verifymessage", "-a", address, "-s", signature, "-m", MESSAGE + "!"]) == 1
@@ -212,3 +215,40 @@ def test_cli_p2wpkh_flow(tmp_path, capsys):
     sig = capsys.readouterr().out.strip().splitlines()[0]
     assert main(["verifymessage", address, sig, MESSAGE]) == 0
     assert main(["verifymessage", address, sig, MESSAGE + "!"]) == 1
+
+
+def test_cli_stdout_carries_only_the_artifact(tmp_path, wallet, signer_expressions, capsys):
+    """Every producing command: artifact on stdout (so > works) or in -o with stdout empty; chatter on stderr."""
+    cfg = tmp_path / "w.desc"
+    cfg.write_text(wallet.to_descriptor() + "\n")
+    address = wallet.derive(0).address
+    assert main(["-w", str(cfg), "createpsbt", "-a", address, "-m", MESSAGE]) == 0
+    out, err = capsys.readouterr()
+    assert out.startswith("cHNidP8") and out.strip().count("\n") == 0 and "to_spend_txid" in err
+    unsigned = tmp_path / "u.psbt"
+    unsigned.write_text(out)
+    assert main(["-w", str(cfg), "createpsbt", "-a", address, "-m", MESSAGE, "-o", str(tmp_path / "u2.psbt")]) == 0
+    assert capsys.readouterr().out == ""
+    assert dev_main(["signpsbt", str(unsigned), "-k", signer_expressions[0]]) == 0
+    out, err = capsys.readouterr()
+    assert out.startswith("cHNidP8") and "added 1 signature" in err
+    a = tmp_path / "a.psbt"
+    a.write_text(out)
+    assert dev_main(["signpsbt", str(a), "-k", signer_expressions[1], "-o", str(tmp_path / "ab.psbt")]) == 0
+    assert capsys.readouterr().out == ""
+    assert main(["combinepsbt", str(a), str(tmp_path / "ab.psbt")]) == 0
+    out, err = capsys.readouterr()
+    assert out.startswith("cHNidP8") and "partial signature" in err
+    ab = tmp_path / "ab2.psbt"
+    ab.write_text(out)
+    assert main(["finalizepsbt", str(ab)]) == 0
+    out, err = capsys.readouterr()
+    assert out.startswith("smp") and out.strip().count("\n") == 0 and err == ""
+    assert main(["finalizepsbt", str(ab), "-o", str(tmp_path / "p.sig"), "--output-psbt", str(tmp_path / "final.psbt")]) == 0
+    assert capsys.readouterr().out == "" and (tmp_path / "p.sig").read_text().strip() == out.strip()
+    assert (tmp_path / "final.psbt").read_text().startswith("cHNidP8")
+    assert dev_main(["keygen", "--seed", "x", "-o", str(tmp_path / "k.json")]) == 0
+    assert capsys.readouterr().out == "" and json.loads((tmp_path / "k.json").read_text())["fingerprint"]
+    assert dev_main(["makewallet", "--wpkh", str(tmp_path / "k.json")]) == 0
+    out, err = capsys.readouterr()
+    assert out.startswith("wpkh(") and "first_address" in err

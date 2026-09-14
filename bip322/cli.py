@@ -62,6 +62,14 @@ def _read_psbt(path: str) -> BIP322PSBT:
     return parse_psbt(data)
 
 
+def _emit(text: str, path: str | None) -> None:
+    """The command's artifact: to stdout, or to ``path`` (``-`` = stdout) with nothing on stdout."""
+    if path is None or path == "-":
+        sys.stdout.write(text if text.endswith("\n") else text + "\n")
+    else:
+        Path(path).write_text(text if text.endswith("\n") else text + "\n")
+
+
 def _write_psbt(psbt: BIP322PSBT, path: str | None, binary: bool = False) -> None:
     if path is None or path == "-":
         print(psbt.to_string())
@@ -230,8 +238,6 @@ def cmd_finalize(args) -> int:
     signature = signature_from_psbt(psbt, args.variant)
     if args.output_psbt:
         _write_psbt(psbt, args.output_psbt, binary=args.binary)
-    if args.signature_file:
-        Path(args.signature_file).write_text(signature + "\n")
     out = {
         "address": info.address,
         "message_utf8": info.message.decode("utf-8", errors="replace"),
@@ -239,10 +245,7 @@ def cmd_finalize(args) -> int:
         "signature": signature,
         "to_sign_hex": extract_tx(psbt).serialize().hex(),
     }
-    if args.json:
-        print(json.dumps(out, indent=2))
-    else:
-        print(signature)
+    _emit(json.dumps(out, indent=2) if args.json else signature, args.output)
     return 0
 
 
@@ -324,7 +327,7 @@ def _add_message_args(p: argparse.ArgumentParser) -> None:
 
 
 def _add_output_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--output", "-o", help="output PSBT file (base64; default stdout)")
+    p.add_argument("--output", "-o", help="write the PSBT here instead of stdout (base64)")
     p.add_argument("--binary", action="store_true", help="write the PSBT in binary instead of base64")
 
 
@@ -385,10 +388,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--variant", choices=["auto", "smp", "ful", "pof"], default="auto")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
     p.add_argument("--lenient", action="store_true", help="skip invalid partial signatures instead of failing")
-    p.add_argument("--output-psbt", help="also write the finalized PSBT")
-    p.add_argument("--signature-file", help="write the signature to this file")
-    p.add_argument("--binary", action="store_true")
-    p.add_argument("--json", action="store_true")
+    p.add_argument("--output", "-o", help="write the signature (or the --json report) here instead of stdout")
+    p.add_argument("--json", action="store_true", help="emit a JSON report (address, message, variant, signature, to_sign hex) instead of the bare signature")
+    p.add_argument("--output-psbt", help="also write the finalized PSBT (for the pof variant or for the record)")
+    p.add_argument("--binary", action="store_true", help="write --output-psbt in binary instead of base64")
     p.set_defaults(func=cmd_finalize)
 
     p = sub.add_parser("verifymessage", help="verify a BIP-322 signature")

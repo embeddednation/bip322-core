@@ -9,7 +9,7 @@ from pathlib import Path
 
 from embit.networks import NETWORKS
 
-from ..cli import CLIError, _add_output_args, _network, _read_psbt, _write_psbt
+from ..cli import CLIError, _add_output_args, _emit, _network, _read_psbt, _write_psbt
 from ..core import BIP322Error
 from ..psbt import inspect_psbt
 from ..wallet import WalletError
@@ -31,7 +31,7 @@ def _read_signer_key(text: str) -> str:
 
 
 def cmd_keygen(args) -> int:
-    print(json.dumps(generate_cosigner(args.label, args.seed, args.origin, args.network or "main"), indent=2))
+    _emit(json.dumps(generate_cosigner(args.label, args.seed, args.origin, args.network or "main"), indent=2), args.output)
     return 0
 
 
@@ -48,11 +48,7 @@ def cmd_makewallet(args) -> int:
             raise CLIError("--threshold is required for a multisig wallet (or use --wpkh with one key)")
         name = args.name or f"bip322-{args.threshold}of{len(cosigners)}"
     wallet = wallet_from_cosigners(args.threshold, cosigners, network=network, name=name, wpkh=args.wpkh)
-    text = wallet.to_descriptor() + "\n"
-    if args.output and args.output != "-":
-        Path(args.output).write_text(text)
-    else:
-        sys.stdout.write(text)
+    _emit(wallet.to_descriptor(), args.output)
     info = wallet.describe()
     info["first_address"] = wallet.derive(0).address
     print(json.dumps({k: info[k] for k in ("name", "network", "policy", "script", "first_address")}, indent=2), file=sys.stderr)
@@ -83,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", help="derive deterministically from this text (omit for random)")
     p.add_argument("--origin", default="48h/0h/0h/2h", help="BIP32 origin path (default: BIP-48 P2WSH multisig account 0)")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
+    p.add_argument("--output", "-o", help="write the JSON here instead of stdout")
     p.set_defaults(func=cmd_keygen)
 
     p = sub.add_parser("makewallet", help="write a checksummed wsh(sortedmulti(...)) or wpkh(...) descriptor from keys")
@@ -91,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--wpkh", action="store_true", help="single-key P2WPKH wallet (exactly one key, no threshold)")
     p.add_argument("--name", help="wallet name (default bip322-<k>of<n>)")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
-    p.add_argument("--output", "-o", help="output file (default stdout)")
+    p.add_argument("--output", "-o", help="write the descriptor here instead of stdout")
     p.set_defaults(func=cmd_makewallet)
 
     p = sub.add_parser("signpsbt", help="add signatures with software keys (tests / non-hardware cosigners)")

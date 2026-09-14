@@ -68,7 +68,7 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
 
    ```sh
    bip322 combinepsbt proof-ccA.psbt proof-ccB.psbt -o proof-combined.psbt
-   bip322 finalizepsbt proof-combined.psbt --signature-file proof.sig
+   bip322 finalizepsbt proof-combined.psbt -o proof.sig
    ```
 
    `finalizepsbt` is the BIP-174 finalizer: it checks every partial signature
@@ -92,6 +92,11 @@ second, consensus-only pass with Bitcoin Core's own interpreter.
 `bip322 analyzepsbt proof.psbt` applies the BIP's *PSBT signer* detection rules
 and shows the message, address, partial signatures and any problems.
 
+Output convention for every command: stdout carries exactly the artifact (a
+PSBT, a signature, a descriptor, a JSON report), so `> file` always works;
+`-o FILE` writes the same artifact to a file and leaves stdout empty; progress
+and summaries go to stderr.
+
 To check one real signature against every reference implementation at once
 (after `refcheck/fetch.sh` and `refcheck/btcd/build.sh`):
 
@@ -114,7 +119,7 @@ bip322 getaddressinfo -w wallet.desc bc1q...               # see how it is built
 bip322 createpsbt -w wallet.desc -a bc1q... -m "demo proof" --strict-coldcard -o proof.psbt
 bip322-dev signpsbt proof.psbt   -k cosigner-A.json -o proof-A.psbt   # "Coldcard A"
 bip322-dev signpsbt proof-A.psbt -k cosigner-B.json -o proof-AB.psbt  # "Coldcard B" (or sign proof.psbt separately and `combinepsbt`)
-bip322 finalizepsbt proof-AB.psbt --signature-file proof.sig
+bip322 finalizepsbt proof-AB.psbt -o proof.sig
 bip322 verifymessage bc1q... "$(cat proof.sig)" "demo proof"
 ```
 
