@@ -45,6 +45,7 @@ def cmd_snapshot(args) -> int:
     snapshot, psbts = take_snapshot(
         _cli(args), wallet, args.text, depth=args.depth, source=args.source,
         coldcard_strict=not args.allow_non_coldcard, max_index=args.max_index, utxo_mode=args.utxo,
+        progress=lambda line: print(line, file=sys.stderr),
     )
     directory = Path(args.output) if args.output else Path(f"proof-{snapshot.stamp.time[:10]}-{snapshot.stamp.height}")
     if directory.exists() and any(directory.iterdir()) and not args.force:
@@ -100,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--network", choices=sorted(NETWORKS), default=None, help="address network (default: from the key encoding)")
     p.add_argument("--text", default=DEFAULT_TEMPLATE, help="message template; {date} {time} {height} {hash} are filled from the stamp block (default: '%(default)s')")
     p.add_argument("--depth", type=int, default=DEFAULT_DEPTH, help=f"stamp/snapshot block is this many blocks behind the tip (default {DEFAULT_DEPTH})")
-    p.add_argument("--source", choices=["auto", "listunspent", "scantxoutset"], default="auto", help="where to find the coins (auto: listunspent when --cli has -rpcwallet, else scantxoutset)")
+    p.add_argument("--source", choices=["auto", "listunspent", "scantxoutset"], default="auto", help="where to find the coins (auto: the node's wallet via listunspent when one is loaded, else a scantxoutset of the descriptor)")
     p.add_argument("--max-index", type=int, default=1000, help="derivation range to consider per branch")
     p.add_argument("--utxo", choices=["witness", "both"], default="witness", help="UTXO fields to embed in the PSBTs")
     p.add_argument("--allow-non-coldcard", action="store_true", help="do not insist on Coldcard's message rules")

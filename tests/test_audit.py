@@ -41,6 +41,10 @@ class FakeCli(BitcoinCli):
         self.calls.append((method, *params))
         if method == "getblockchaininfo":
             return {"chain": self.chain_name, "blocks": self.tip_height, "bestblockhash": fake_hash(self.tip_height)}
+        if method == "getwalletinfo":
+            if "-rpcwallet=watch" not in self.argv:
+                raise RpcError("Wallet file not specified (must request wallet RPC through /wallet/<filename> uri-path)")
+            return {"walletname": "watch"}
         if method == "getblockhash":
             return fake_hash(int(params[0]))
         if method == "getblockheader":

@@ -182,8 +182,12 @@ def take_snapshot(
     coldcard_strict: bool = True,
     max_index: int = 1000,
     utxo_mode: str = "witness",
+    progress=None,
 ) -> tuple[Snapshot, dict[str, object]]:
-    """Build the snapshot and the unsigned PSBTs; returns (snapshot, {address: BIP322PSBT})."""
+    """Build the snapshot and the unsigned PSBTs; returns (snapshot, {address: BIP322PSBT}).
+
+    ``progress`` is an optional callable given a line of text before slow steps.
+    """
     chain = cli.chain()
     if wallet.network == "test" and chain in ("regtest", "signet"):
         # tpub keys are shared by every test chain; the node says which one this is
@@ -197,10 +201,20 @@ def take_snapshot(
     if lint and coldcard_strict:
         raise ValueError("message would be refused by a Coldcard: " + "; ".join(lint))
     if source == "auto":
-        source = "listunspent" if any(a.startswith("-rpcwallet") for a in cli.argv) else "scantxoutset"
+        # a node with exactly one wallet loaded answers listunspent without -rpcwallet; only fall
+        # back to the (minutes-long) UTXO-set scan when the node has no wallet to ask
+        try:
+            cli.call("getwalletinfo")
+            source = "listunspent"
+        except RpcError as exc:
+            if progress:
+                progress(f"no wallet available ({exc}); scanning the UTXO set for the descriptor instead")
+            source = "scantxoutset"
     if source == "listunspent":
         coins = coins_from_listunspent(cli, wallet, stamp, tip_height, max_index=max_index)
     elif source == "scantxoutset":
+        if progress:
+            progress("scantxoutset: scanning the whole UTXO set for the wallet descriptor, this takes minutes on mainnet")
         coins = coins_from_scantxoutset(cli, wallet, stamp, scan_range=max_index)
     else:
         raise ValueError("source must be auto, listunspent or scantxoutset")

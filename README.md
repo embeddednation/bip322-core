@@ -180,9 +180,10 @@ bip322-audit --cli "bitcoin-cli" verify proof-2026-09-14-912345 --txindex --repo
 `snapshot` takes the block six behind the tip (`--depth`) as the stamp *and*
 the snapshot height: the message ends with `block: HEIGHT HASH TIME` taken
 from that block, and only outputs confirmed at that block are listed. Coins
-come from `listunspent` on a Core wallet holding the descriptor
-(`-rpcwallet=` in `--cli`) or from `scantxoutset` of the descriptor
-(`--source scantxoutset`, no Core wallet needed). The template accepts
+come from `listunspent` on the node's loaded wallet (the only one, or the one
+named with `-rpcwallet=` in `--cli`) or, when the node has no wallet, from a
+`scantxoutset` of the descriptor (minutes on mainnet; the command says so
+before it starts; `--source` forces either). The template accepts
 `{date}`, `{time}`, `{height}`, `{hash}`, and is checked against Coldcard's
 message rules.
 
