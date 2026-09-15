@@ -232,7 +232,7 @@ def test_engine_crash_fails_closed(proof, monkeypatch):
 
 
 def test_duplicate_xpub_is_rejected(masters):
-    from tests.conftest import key_expression
+    from bip322.dev.testing import key_expression
 
     keys = [key_expression(masters[0]), key_expression(masters[1]), key_expression(masters[0])]
     with pytest.raises(WalletError, match="more than once"):

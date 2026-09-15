@@ -187,7 +187,7 @@ def core_checks(core: Daemon, fx: Fixture) -> list[dict]:
     try:
         good = core.rpc("signrawtransactionwithkey", our_hex, [], [prevtx])
         rec("signrawtransactionwithkey (no keys) accepts our witness", good.get("complete") is True and not good.get("errors"), json.dumps(good.get("errors", ""))[:160])
-        from tests.helpers import high_s
+        from bip322.dev.testing import high_s
 
         witness = list(core_tx.vin[0].witness.items)
         witness[1] = high_s(witness[1])

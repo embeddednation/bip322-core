@@ -162,7 +162,7 @@ def test_not_enough_signatures(wallet, signer_expressions):
 
 
 def test_foreign_key_adds_nothing(wallet):
-    from tests.conftest import key_expression, master_key
+    from bip322.dev.testing import key_expression, master_key
 
     psbt = create_psbt(wallet.derive(0), MESSAGE)
     assert sign_psbt(psbt, key_expression(master_key("Z"), private=True)) == 0
@@ -217,8 +217,8 @@ def test_tampered_partial_signature_is_rejected_at_finalize(wallet, signer_expre
 
 @pytest.fixture(scope="module")
 def wpkh(masters):
+    from bip322.dev.testing import ORIGIN_PATH  # noqa: F401
     from bip322.wallet import Wallet
-    from tests.conftest import ORIGIN_PATH  # noqa: F401
 
     master = masters[1]
     account = master.derive("m/84h/0h/0h")

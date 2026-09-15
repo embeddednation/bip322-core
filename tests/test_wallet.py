@@ -58,7 +58,7 @@ def test_find_address_across_networks(wallet):
 
 
 def test_rejects_unsupported_descriptors(masters):
-    from tests.conftest import key_expression
+    from bip322.dev.testing import key_expression
 
     keys = ",".join(key_expression(m) for m in masters)
     with pytest.raises(WalletError):

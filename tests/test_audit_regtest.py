@@ -10,13 +10,13 @@ import pytest
 from embit.networks import NETWORKS
 
 from bip322.dev.signing import sign_psbt
+from bip322.dev.testing import ORIGIN_PATH
 from bip322.psbt import parse_psbt
 from bip322.wallet import Wallet
 from bip322audit.audit import finalize_bundle, format_report, verify_proofs
 from bip322audit.rpc import BitcoinCli
 from bip322audit.snapshot import take_snapshot, write_bundle
 from bip322audit.stamp import parse_stamp
-from tests.conftest import ORIGIN_PATH
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE_DIR = next(iter(sorted((ROOT / "refcheck" / "bin").glob("bitcoin-31.*"))), None)

@@ -1,26 +1,13 @@
-import hashlib
 import json
 import pathlib
 
 import pytest
 from embit.bip32 import HDKey
 
+from bip322.dev.testing import ORIGIN_PATH, key_expression, master_key  # noqa: F401 - re-exported for tests
 from bip322.wallet import MultisigWallet
 
 VECTORS = pathlib.Path(__file__).parent / "vectors"
-ORIGIN_PATH = "48h/0h/0h/2h"
-
-
-def master_key(label: str) -> HDKey:
-    seed = hashlib.sha256(f"bip322ms-test-cosigner-{label}".encode()).digest()
-    seed += hashlib.sha256(label.encode()).digest()
-    return HDKey.from_seed(seed)
-
-
-def key_expression(master: HDKey, private: bool = False, branches: str = "<0;1>") -> str:
-    account = master.derive("m/" + ORIGIN_PATH)
-    key = account if private else account.to_public()
-    return f"[{master.my_fingerprint.hex()}/{ORIGIN_PATH}]{key.to_base58()}/{branches}/*"
 
 
 def load_vectors(name: str) -> dict:

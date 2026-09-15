@@ -271,6 +271,7 @@ bip322/cli.py         bip322 command
 bip322/dev/signing.py software signing (tests, non-hardware cosigners)
 bip322/dev/keys.py    dummy cosigner generation, wallet assembly from keys
 bip322/dev/cli.py     bip322-dev command (keygen, makewallet, signpsbt)
+bip322/dev/testing.py deterministic test cosigners and tampering helpers (tests and refcheck)
 bip322audit/          bip322-audit: rpc.py (bitcoin-cli), stamp.py, snapshot.py, audit.py, cli.py
 tests/                pytest suite and official vectors
 refcheck/             reference harness (fetch.sh, btcd/, run_refcheck.py)

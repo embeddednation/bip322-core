@@ -16,10 +16,9 @@ from embit.transaction import SIGHASH
 
 from bip322.core import build_to_sign, build_to_spend, encode_full, encode_simple
 from bip322.dev.signing import sign_psbt
+from bip322.dev.testing import high_s, key_expression, master_key, sign_with_sighash
 from bip322.psbt import BIP322PSBT, create_psbt, finalize_psbt, signature_from_psbt
 from bip322.wallet import MultisigWallet
-from tests.conftest import key_expression, master_key
-from tests.helpers import high_s, sign_with_sighash
 
 MESSAGES = {
     "hello": b"Hello World",
