@@ -115,7 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
                        description=("Take the snapshot: read the wallet descriptor from the node wallet (or --descriptor), choose the stamp block "
                                     "(tip - DEPTH), find the wallet's coins confirmed at that block "
                                     "(listunspent on the node wallet, or a scantxoutset of the descriptor), compose the message from the template "
-                                    "plus the stamp line, and write snapshot.json, message.txt and proof-NN.psbt per funded address (the address of each is in snapshot.json). "
+                                    "plus the stamp line, and write snapshot.json, message.txt and to_sign-NN.psbt per funded address (the address of each is in snapshot.json). "
                                     "Sign the PSBTs on the cosigners' devices and put the results in <dir>/signed/."))
     _add_node_args(p)
     p.add_argument("--descriptor", "-d", metavar="FILE|DESC", help="use this descriptor (a file or the text) instead of the node wallet's own; it must be one of the wallet's descriptors")

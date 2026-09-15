@@ -298,8 +298,8 @@ def take_snapshot(
 
 
 def psbt_file_name(sequence: int, derived: DerivedAddress) -> str:  # noqa: ARG001 - the address lives in snapshot.json
-    """Plain sequence names (``proof-01.psbt``): short on a device screen, and the devices append ``-part`` to them."""
-    return f"proof-{sequence:02d}.psbt"
+    """``to_sign-01.psbt``: what the file is (the BIP-322 to_sign transaction to sign), short on a device screen."""
+    return f"to_sign-{sequence:02d}.psbt"
 
 
 def write_bundle(directory: Path, snapshot: Snapshot, psbts: dict[str, object]) -> list[Path]:
