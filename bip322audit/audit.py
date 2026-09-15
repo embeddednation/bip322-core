@@ -18,7 +18,7 @@ from bip322.verify import verify_message
 from bip322.wallet import Wallet, WalletError
 
 from . import TOOL
-from .rpc import BitcoinCli, RpcError, to_sat
+from .rpc import BitcoinCli, RpcError, btc, to_sat
 from .snapshot import load_snapshot
 from .stamp import Stamp, check_stamp, parse_stamp
 
@@ -201,7 +201,8 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
 
     stamp_ok = bool(report["stamp"] and report["stamp"].get("ok"))
     online = cli is not None
-    report["totals"] = {"claimed_sat": claimed, "verified_unspent_sat": unspent if online else None}
+    report["totals"] = {"claimed_sat": claimed, "claimed_btc": btc(claimed),
+                        "verified_unspent_sat": unspent if online else None, "verified_unspent_btc": btc(unspent) if online else None}
     report["summary"] = {
         "proofs_valid": all_proofs_ok,
         "stamp_ok": stamp_ok if online else None,
@@ -306,18 +307,18 @@ def format_report(report: dict) -> str:
         lines.append(f"{p['address']}  (branch {p['branch']}, index {p['index']})  bip322: {v['state'].upper()}")
         for u in p["utxos"]:
             mark = "ok" if u.get("verified") else ("!!" if u.get("contradiction") else "--")
-            lines.append(f"    [{mark}] {u['txid'][:16]}...:{u['vout']}  {u['amount_sat']:>12} sat  {u['status']}" + (f"  ({u['problem']})" if u.get("problem") else ""))
-        lines.append(f"    claimed {p['claimed_sat']} sat" + (f", unspent now {p['unspent_now_sat']} sat" if node else ""))
+            lines.append(f"    [{mark}] {u['txid'][:16]}...:{u['vout']}  {btc(u['amount_sat']):>14} BTC  {u['status']}" + (f"  ({u['problem']})" if u.get("problem") else ""))
+        lines.append(f"    claimed {btc(p['claimed_sat'])} BTC" + (f", unspent now {btc(p['unspent_now_sat'])} BTC" if node else ""))
     lines.append("")
     t = report["totals"]
-    lines.append(f"totals: claimed {t['claimed_sat']} sat" + (f", verified unspent now {t['verified_unspent_sat']} sat" if node else ""))
+    lines.append(f"totals: claimed {btc(t['claimed_sat'])} BTC" + (f", verified unspent now {btc(t['verified_unspent_sat'])} BTC" if node else ""))
     if report.get("current_holdings"):
         h = report["current_holdings"]
-        lines.append(f"current holdings at height {h['height']} ({h['scanned']}): {h['total_sat']} sat across {len(h['by_address_sat'])} address(es)")
+        lines.append(f"current holdings at height {h['height']} ({h['scanned']}): {btc(h['total_sat'])} BTC across {len(h['by_address_sat'])} address(es)")
         if h.get("unproven"):
-            lines.append(f"  !! {h['unproven_sat']} sat at {len(h['unproven'])} funded address(es) not covered by any proof:")
+            lines.append(f"  !! {btc(h['unproven_sat'])} BTC at {len(h['unproven'])} funded address(es) not covered by any proof:")
             for a, v in h["unproven"].items():
-                lines.append(f"     {a}  {v} sat")
+                lines.append(f"     {a}  {btc(v)} BTC")
     for problem in report.get("document_problems", []):
         lines.append(f"!! document: {problem}")
     s = report["summary"]

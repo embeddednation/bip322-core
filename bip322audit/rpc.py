@@ -20,6 +20,11 @@ class RpcError(Exception):
     """bitcoin-cli failed or returned something unexpected."""
 
 
+def btc(sat: int) -> str:
+    """Satoshis as a BTC string with 8 decimals, exact."""
+    return f"{Decimal(int(sat)) / SATOSHI:.8f}"
+
+
 def to_sat(amount) -> int:
     """Exact BTC -> satoshi conversion for the numbers bitcoin-cli prints."""
     value = Decimal(str(amount)) * SATOSHI

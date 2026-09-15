@@ -100,7 +100,10 @@ def funded(wallet):
 
 
 def test_to_sat_is_exact():
+    from bip322audit.rpc import btc
+
     assert to_sat("0.50000000") == 50_000_000 and to_sat("0.00000001") == 1 and to_sat(1) == 100_000_000
+    assert btc(50_000_000) == "0.50000000" and btc(1) == "0.00000001" and btc(0) == "0.00000000" and to_sat(btc(123456789)) == 123456789
     with pytest.raises(RpcError):
         to_sat("0.000000001")
 
@@ -181,9 +184,9 @@ def test_finalize_and_verify_with_fake_node(tmp_path, wallet, funded, signer_exp
     report = verify_proofs(document, cli, engines=["btclib"])
     assert report["ok"] and report["summary"]["proofs_valid"] and report["stamp"]["ok"]
     assert report["summary"]["utxos_verified_at_snapshot"] == "3/3" and report["summary"]["all_utxos_still_unspent"]
-    assert report["totals"] == {"claimed_sat": 85_000_000, "verified_unspent_sat": 85_000_000}
+    assert report["totals"] == {"claimed_sat": 85_000_000, "claimed_btc": "0.85000000", "verified_unspent_sat": 85_000_000, "verified_unspent_btc": "0.85000000"}
     text = format_report(report)
-    assert "RESULT: OK" in text and "3/3" in text
+    assert "RESULT: OK" in text and "3/3" in text and "0.85000000 BTC" in text and " sat" not in text
 
     # one output spent since the snapshot: reported, not a failure; --txindex can't help on the fake node
     utxo = document["proofs"][0]["utxos"][0]

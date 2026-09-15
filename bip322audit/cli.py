@@ -14,7 +14,7 @@ from bip322.wallet import Wallet, wallet_from_file
 
 from . import TOOL
 from .audit import AuditError, finalize_bundle, format_report, load_proofs, verify_proofs
-from .rpc import BitcoinCli, RpcError
+from .rpc import BitcoinCli, RpcError, btc
 from .snapshot import DEFAULT_DEPTH, check_wallet_against_node, take_snapshot, wallet_from_node, write_bundle
 from .stamp import fetch_stamp
 
@@ -71,8 +71,8 @@ def cmd_snapshot(args) -> int:
     write_bundle(directory, snapshot, psbts)
     print(json.dumps({"directory": str(directory), "stamp": snapshot.stamp.to_dict(), "source": snapshot.source, "policy": snapshot.policy,
                       "addresses": len(snapshot.addresses), "utxos": sum(len(a["utxos"]) for a in snapshot.addresses),
-                      "total_sat": snapshot.total_sat, "message": snapshot.message,
-                      "psbts": {a["file"]: f"{a['address']} ({a['total_sat']} sat)" for a in snapshot.addresses}}, indent=2), file=sys.stderr)
+                      "total_sat": snapshot.total_sat, "total_btc": btc(snapshot.total_sat), "message": snapshot.message,
+                      "psbts": {a["file"]: f"{a['address']} ({btc(a['total_sat'])} BTC)" for a in snapshot.addresses}}, indent=2), file=sys.stderr)
     print(str(directory))
     return 0
 
@@ -82,7 +82,8 @@ def cmd_finalize(args) -> int:
     document = finalize_bundle(directory, lenient=args.lenient)
     out = Path(args.output) if args.output else directory / "proofs.json"
     out.write_text(json.dumps(document, indent=2) + "\n")
-    print(json.dumps({"proofs": len(document["proofs"]), "total_sat": sum(p["total_sat"] for p in document["proofs"]), "written": str(out)}, indent=2), file=sys.stderr)
+    total = sum(p["total_sat"] for p in document["proofs"])
+    print(json.dumps({"proofs": len(document["proofs"]), "total_sat": total, "total_btc": btc(total), "written": str(out)}, indent=2), file=sys.stderr)
     print(str(out))
     return 0
 

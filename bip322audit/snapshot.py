@@ -24,7 +24,7 @@ from bip322.psbt import create_psbt
 from bip322.wallet import DerivedAddress, Wallet, WalletError
 
 from . import TOOL
-from .rpc import BitcoinCli, RpcError, to_sat
+from .rpc import BitcoinCli, RpcError, btc, to_sat
 from .stamp import DEFAULT_DEPTH, Stamp, compose_message, fetch_stamp
 
 _ORIGIN_RE = re.compile(r"\[[0-9a-fA-F]{8}((?:/\d+[h'H]?)+)\]")
@@ -215,6 +215,7 @@ class Snapshot:
             "source": self.source,
             "addresses": self.addresses,
             "total_sat": self.total_sat,
+            "total_btc": btc(self.total_sat),
         }
 
 
