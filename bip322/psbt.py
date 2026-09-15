@@ -281,19 +281,10 @@ def signer_report(psbt: BIP322PSBT, input_index: int = 0) -> list[dict]:
     signature is verified against the input's sighash exactly as the finalizer does.
     """
     inp = psbt.inputs[input_index]
-    keys: list[ec.PublicKey] = []
-    if inp.witness_script is not None:
-        try:
-            keys = list(parse_multisig(inp.witness_script)[1])
-        except Exception:  # noqa: BLE001
-            keys = []
-    for pub in list(inp.bip32_derivations) + list(inp.partial_sigs):
-        if pub not in keys:
-            keys.append(pub)
     from .wallet import path_to_str
 
     report = []
-    for pub in keys:
+    for pub in _input_keys(inp):
         derivation = inp.bip32_derivations.get(pub)
         entry = {
             "pubkey": pub.sec().hex(),
@@ -316,25 +307,31 @@ def signer_report(psbt: BIP322PSBT, input_index: int = 0) -> list[dict]:
 def resolve_signers(psbt: BIP322PSBT, selectors: Sequence[str], input_index: int = 0) -> set[ec.PublicKey]:
     """Map fingerprints or pubkey (prefixes) to the input's keys; unknown selectors are an error."""
     inp = psbt.inputs[input_index]
-    known = signer_report(psbt, input_index)
+    by_hex = {pub.sec().hex(): pub for pub in _input_keys(inp)}
+    fingerprints = {pub.sec().hex(): inp.bip32_derivations[pub].fingerprint.hex() for pub in inp.bip32_derivations}
     chosen: set[ec.PublicKey] = set()
     for selector in selectors:
         sel = selector.strip().lower()
-        matches = [e for e in known if sel and (e["fingerprint"] == sel or e["pubkey"].startswith(sel))]
+        matches = [h for h in by_hex if sel and (fingerprints.get(h) == sel or h.startswith(sel))]
         if len(matches) != 1:
-            raise FinalizeError(f"signer {selector!r} does not identify exactly one key of input {input_index} "
-                                f"(known: {', '.join((e['fingerprint'] or e['pubkey'][:16]) for e in known)})")
-        chosen.add(next(pub for pub in list(inp.bip32_derivations) + list(inp.partial_sigs) + _script_keys(inp) if pub.sec().hex() == matches[0]["pubkey"]))
+            known = ", ".join(fingerprints.get(h) or h[:16] for h in by_hex)
+            raise FinalizeError(f"signer {selector!r} does not identify exactly one key of input {input_index} (known: {known})")
+        chosen.add(by_hex[matches[0]])
     return chosen
 
 
-def _script_keys(inp) -> list[ec.PublicKey]:
-    if inp.witness_script is None:
-        return []
-    try:
-        return list(parse_multisig(inp.witness_script)[1])
-    except Exception:  # noqa: BLE001
-        return []
+def _input_keys(inp) -> list[ec.PublicKey]:
+    """The input's keys in witness-script order, then any others with a path or a signature."""
+    keys: list[ec.PublicKey] = []
+    if inp.witness_script is not None:
+        try:
+            keys = list(parse_multisig(inp.witness_script)[1])
+        except Exception:  # noqa: BLE001
+            keys = []
+    for pub in list(inp.bip32_derivations) + list(inp.partial_sigs):
+        if pub not in keys:
+            keys.append(pub)
+    return keys
 
 
 # --------------------------------------------------------------------------- #

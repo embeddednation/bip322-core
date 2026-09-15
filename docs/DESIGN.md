@@ -151,12 +151,24 @@ holds none.
   relied on. Outpoints are not repeated in the message (control of the script
   covers every output paying to it).
 * **Verdict.** `verify` is OK when every signature is valid, the stamp block
-  is in the node's main chain with the claimed height and time, and no listed
-  output is contradicted by the node (different amount, address or creation
-  height). Outputs no longer in the UTXO set are reported as spent or unknown;
-  with `--txindex` their existence at the snapshot block is confirmed, but
+  is in the node's main chain with the claimed height and time, the document
+  is consistent (its recorded stamp equals the one inside the signed message,
+  `message` and `message_hex` agree, every proven address sits at the stated
+  branch/index of the declared descriptor), and no listed output is
+  contradicted by the node (different amount, address or creation height).
+  Outputs no longer in the UTXO set are reported as spent or unknown; with
+  `--txindex` their existence at the snapshot block is confirmed, but
   "unspent at the snapshot" cannot be shown without a spend index, and the
   report says so.
+* **Completeness.** `verify --scan` scans the UTXO set for the *declared
+  descriptor*, not just the proven addresses, and lists funded addresses that
+  no proof covers. A snapshot proves what it lists; the scan is how an auditor
+  sees whether that is everything the wallet holds now.
+* **Device health check.** `bip322 checksigners` takes the devices' PSBT files,
+  shows the script behind the input and its mapping back to the address,
+  verifies each cosigner's signature alone, and finalizes and verifies one
+  proof per threshold-sized combination. `decodesignature` opens any proof
+  string into labelled witness elements (taproot-aware).
 
 ## 10. Test evidence
 

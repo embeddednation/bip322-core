@@ -15,6 +15,7 @@ from pathlib import Path
 from bip322.engines import available_engines
 from bip322.psbt import BIP322PSBT, FinalizeError, combine_psbts, finalize_psbt, parse_psbt, signature_from_psbt
 from bip322.verify import verify_message
+from bip322.wallet import Wallet, WalletError
 
 from . import TOOL
 from .rpc import BitcoinCli, RpcError, to_sat
@@ -145,8 +146,13 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
     """Verify a proofs document; ``cli=None`` verifies only what needs no node."""
     engines = list(engines or available_engines())
     message = bytes.fromhex(document["message_hex"]) if document.get("message_hex") else document["message"].encode("utf-8")
+    if document.get("message_hex") and document.get("message") is not None and message != document["message"].encode("utf-8"):
+        raise AuditError("proofs.json is inconsistent: 'message' and 'message_hex' differ")
     stamp = parse_stamp(message)
-    report: dict = {"tool": TOOL, "verified_utc": _now(), "engines": engines, "proofs": [], "stamp": None, "node": None}
+    report: dict = {"tool": TOOL, "verified_utc": _now(), "engines": engines, "proofs": [], "stamp": None, "node": None, "document_problems": []}
+    if stamp is not None and document.get("stamp") and Stamp.from_dict(document["stamp"]) != stamp:
+        report["document_problems"].append("the stamp recorded in proofs.json differs from the stamp inside the signed message")
+    wallet = _document_wallet(document, report)
 
     if cli is not None:
         chain = cli.chain()
@@ -171,6 +177,9 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
         row = {"address": address, "branch": proof.get("branch"), "index": proof.get("index"), "bip322": verdict.to_dict(), "utxos": [], "claimed_sat": proof["total_sat"]}
         row["bip322"].pop("message_utf8", None)
         row["bip322"].pop("message_hex", None)
+        row["address_in_wallet"] = _address_in_wallet(wallet, proof)
+        if row["address_in_wallet"] is False:
+            report["document_problems"].append(f"{address} is not branch {proof.get('branch')} index {proof.get('index')} of the declared wallet descriptor")
         all_proofs_ok &= verdict.ok
         claimed += proof["total_sat"]
         if cli is not None and stamp is not None:
@@ -188,7 +197,7 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
         report["proofs"].append(row)
 
     if cli is not None and scan:
-        report["current_holdings"] = _scan_now(cli, document)
+        report["current_holdings"] = _scan_now(cli, document, wallet)
 
     stamp_ok = bool(report["stamp"] and report["stamp"].get("ok"))
     online = cli is not None
@@ -200,21 +209,82 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
         "contradictions": contradictions if online else None,
         "all_utxos_still_unspent": (unspent == claimed) if online else None,
     }
-    # the proof of control stands when the signatures and the stamp check out and the node contradicts
-    # nothing; outputs spent since the snapshot are reported (and confirmed with --txindex), not failures
-    report["ok"] = all_proofs_ok and (stamp_ok if online else True) and contradictions == 0
+    # the proof of control stands when the signatures and the stamp check out, the document is consistent with
+    # itself and its wallet, and the node contradicts nothing; outputs spent since the snapshot are reported
+    # (and confirmed with --txindex), not failures
+    report["summary"]["document_consistent"] = not report["document_problems"]
+    report["ok"] = all_proofs_ok and (stamp_ok if online else True) and contradictions == 0 and not report["document_problems"]
     return report
 
 
-def _scan_now(cli: BitcoinCli, document: dict) -> dict:
-    descriptors = [{"desc": f"addr({p['address']})"} for p in document["proofs"]]
+def _document_wallet(document: dict, report: dict) -> Wallet | None:
+    """The wallet declared in proofs.json, on the document's chain; None when it cannot be built."""
+    descriptor = (document.get("wallet") or {}).get("descriptor")
+    if not descriptor:
+        return None
+    network = {"main": "main", "test": "test", "regtest": "regtest", "signet": "signet"}.get(document.get("chain") or "")
+    try:
+        return Wallet.from_descriptor(descriptor, network=network)
+    except WalletError as exc:
+        report["document_problems"].append(f"declared wallet descriptor is unusable: {exc}")
+        return None
+
+
+def _address_in_wallet(wallet: Wallet | None, proof: dict) -> bool | None:
+    """Does the proof's address sit at the stated branch/index of the declared wallet?"""
+    if wallet is None or proof.get("index") is None:
+        return None
+    try:
+        derived = wallet.derive(int(proof["index"]), int(proof.get("branch") or 0))
+    except WalletError:
+        return False
+    return derived.address == proof["address"] or _same_script(wallet, derived.script_pubkey, proof["address"])
+
+
+def _same_script(wallet: Wallet, script_pubkey: bytes, address: str) -> bool:
+    from embit.script import address_to_scriptpubkey
+
+    try:
+        return address_to_scriptpubkey(address).data == script_pubkey
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _scan_now(cli: BitcoinCli, document: dict, wallet: Wallet | None, scan_range: int = 1000) -> dict:
+    """What the wallet holds *now*: every funded address of the declared descriptor, proven or not.
+
+    This is the completeness check an auditor wants: coins of the wallet that no
+    proof covers show up as ``unproven``.  Falls back to the proven addresses
+    only when the document declares no usable wallet.
+    """
+    if wallet is not None:
+        descriptors = [{"desc": d, "range": [0, scan_range]} for d in wallet.core_descriptors()]
+    else:
+        descriptors = [{"desc": f"addr({p['address']})"} for p in document["proofs"]]
     result = cli.call("scantxoutset", "start", descriptors)
+    if not result or not result.get("success"):
+        raise AuditError("scantxoutset did not succeed (another scan running?)")
+    from embit.networks import NETWORKS
+    from embit.script import Script
+
     by_address: dict[str, int] = {}
     for u in result.get("unspents", []):
-        address = u.get("desc", "")
-        address = address[5:].split(")")[0] if address.startswith("addr(") else address
+        try:
+            address = Script(bytes.fromhex(u["scriptPubKey"])).address(NETWORKS[wallet.network if wallet else "main"])
+        except Exception:  # noqa: BLE001
+            continue
         by_address[address] = by_address.get(address, 0) + to_sat(u["amount"])
-    return {"height": int(result["height"]), "bestblock": result["bestblock"], "by_address_sat": by_address, "total_sat": sum(by_address.values())}
+    proven = {p["address"] for p in document["proofs"]}
+    unproven = {a: v for a, v in by_address.items() if a not in proven}
+    return {
+        "height": int(result["height"]),
+        "bestblock": result["bestblock"],
+        "scanned": "wallet descriptor" if wallet is not None else "proven addresses only",
+        "by_address_sat": by_address,
+        "total_sat": sum(by_address.values()),
+        "unproven": unproven,
+        "unproven_sat": sum(unproven.values()),
+    }
 
 
 def format_report(report: dict) -> str:
@@ -243,9 +313,15 @@ def format_report(report: dict) -> str:
     lines.append(f"totals: claimed {t['claimed_sat']} sat" + (f", verified unspent now {t['verified_unspent_sat']} sat" if node else ""))
     if report.get("current_holdings"):
         h = report["current_holdings"]
-        lines.append(f"current holdings at height {h['height']}: {h['total_sat']} sat across {len(h['by_address_sat'])} address(es)")
+        lines.append(f"current holdings at height {h['height']} ({h['scanned']}): {h['total_sat']} sat across {len(h['by_address_sat'])} address(es)")
+        if h.get("unproven"):
+            lines.append(f"  !! {h['unproven_sat']} sat at {len(h['unproven'])} funded address(es) not covered by any proof:")
+            for a, v in h["unproven"].items():
+                lines.append(f"     {a}  {v} sat")
+    for problem in report.get("document_problems", []):
+        lines.append(f"!! document: {problem}")
     s = report["summary"]
-    lines.append(f"proofs valid: {s['proofs_valid']}; stamp ok: {s['stamp_ok']}; outputs verified at snapshot: {s['utxos_verified_at_snapshot']}; contradictions: {s['contradictions']}; all still unspent: {s['all_utxos_still_unspent']}")
+    lines.append(f"proofs valid: {s['proofs_valid']}; stamp ok: {s['stamp_ok']}; document consistent: {s['document_consistent']}; outputs verified at snapshot: {s['utxos_verified_at_snapshot']}; contradictions: {s['contradictions']}; all still unspent: {s['all_utxos_still_unspent']}")
     lines.append("RESULT: " + ("OK" if report["ok"] else "FAILED"))
     return "\n".join(lines)
 

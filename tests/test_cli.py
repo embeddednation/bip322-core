@@ -307,3 +307,19 @@ def test_cli_decodesignature(wallet, signer_expressions, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["variant"] == "pof" and out["psbt"]["message_utf8"] == "decode me" and out["psbt"]["inputs"][0]["finalized"]
     assert main(["decodesignature", "smp!!"]) == 2
+
+
+def test_cli_decodesignature_taproot(capsys):
+    from tests.conftest import load_vectors
+
+    gen = load_vectors("generated-test-vectors.json")
+    keypath = next(v for v in gen["simple"] if v["type"] == "p2tr")
+    assert main(["decodesignature", keypath["bip322_signatures"][0]]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert len(out["witness"]) == 1 and out["witness"][0]["role"].startswith("Schnorr signature")
+    scriptpath = next(v for v in gen["full"] if v["type"] == "p2tr-time-lock")
+    assert main(["decodesignature", scriptpath["bip322_signatures"][0]]) == 0
+    out = json.loads(capsys.readouterr().out)
+    roles = [w["role"] for w in out["to_sign"]["inputs"][0]["witness"]]
+    assert roles[-1] == "taproot control block" and roles[-2] == "tapscript" and roles[0].startswith("Schnorr signature")
+    assert "OP_CHECKLOCKTIMEVERIFY" in out["to_sign"]["inputs"][0]["witness"][-2]["asm"] or "OP_CHECKSEQUENCEVERIFY" in out["to_sign"]["inputs"][0]["witness"][-2]["asm"]

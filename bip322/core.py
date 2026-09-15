@@ -231,20 +231,30 @@ def disassemble(script: bytes) -> str:
 def describe_witness(items: Sequence[bytes]) -> list[dict]:
     """Label each witness element: empty dummy, ECDSA/Schnorr signature with its sighash, script, or data."""
     described = []
+    last = len(items) - 1
+    items = list(items)
+    control_block = last >= 1 and len(items[last]) >= 33 and (len(items[last]) - 33) % 32 == 0 and items[last][0] & 0xFE == 0xC0
     for index, item in enumerate(items):
         entry = {"index": index, "hex": item.hex(), "bytes": len(item)}
         if not item:
-            entry["role"] = "empty (CHECKMULTISIG dummy)" if index == 0 else "empty"
-        elif item[0] == 0x30 and 9 <= len(item) <= 73:
+            entry["role"] = "empty (CHECKMULTISIG dummy)" if index == 0 and last > 0 else "empty"
+        elif item[0] == 0x30 and 9 <= len(item) <= 73 and item[1] == len(item) - 3:
             entry["role"] = "ECDSA signature (DER + sighash byte)"
             entry["sighash"] = item[-1]
-        elif len(item) in (64, 65) and index != len(items) - 1:
+        elif len(item) in (64, 65) and (index != last or last == 0):
             entry["role"] = "Schnorr signature" + (" + sighash byte" if len(item) == 65 else " (SIGHASH_DEFAULT)")
-            if len(item) == 65:
-                entry["sighash"] = item[-1]
+            entry["sighash"] = item[-1] if len(item) == 65 else 0
         elif len(item) == 33 and item[0] in (2, 3):
             entry["role"] = "compressed public key"
-        elif index == len(items) - 1 and len(item) > 33:
+        elif control_block and index == last:
+            entry["role"] = "taproot control block"
+            entry["leaf_version"] = item[0] & 0xFE
+            entry["internal_key"] = item[1:33].hex()
+            entry["merkle_path_len"] = (len(item) - 33) // 32
+        elif control_block and index == last - 1:
+            entry["role"] = "tapscript"
+            entry["asm"] = disassemble(item)
+        elif index == last and len(item) > 1:
             entry["role"] = "witness script"
             entry["asm"] = disassemble(item)
             digest = hashlib.sha256(item).digest()

@@ -75,6 +75,9 @@ flow, the exact rule sets, known divergences between implementations, exit codes
    challenge address, and returns a signed PSBT (never a finalized
    transaction). The multisig wallet must be enrolled on each Coldcard, or
    *Trust PSBT* enabled so it can be imported from the global xpubs.
+   The PSBT carries the wallet's global xpubs so a device with *Trust PSBT*
+   can import the wallet; with that setting on, only sign PSBTs you produced
+   yourself, since a foreign PSBT could enrol a foreign wallet.
    Confirmed with real devices (2026-09-15). Once a PSBT holds enough
    signatures for the threshold, a further Coldcard reports "not our key"
    and adds nothing: sign the original (or a once-signed copy) instead, and
@@ -184,12 +187,16 @@ come from `listunspent` on a Core wallet holding the descriptor
 message rules.
 
 `verify` re-checks everything on the auditor's node: each BIP-322 signature,
-the stamp block (`getblockheader`: height, time, in main chain), and each
-listed output with `gettxout` (amount, address, creation height at or before
-the stamp). Outputs spent since the snapshot are reported, not failures;
+the stamp block (`getblockheader`: height, time, in main chain), that every
+proven address really sits at its stated index of the declared descriptor,
+that the document is consistent with the signed message, and each listed
+output with `gettxout` (amount, address, creation height at or before the
+stamp). Outputs spent since the snapshot are reported, not failures;
 `--txindex` on a node with `-txindex` confirms they existed at the snapshot.
-The result is OK when the signatures and the stamp check out and the node
-contradicts nothing. `--offline` verifies signatures only.
+`--scan` additionally scans the UTXO set for the whole descriptor and lists
+funded addresses no proof covers, which is the completeness check. The result
+is OK when the signatures and the stamp check out, the document is consistent,
+and the node contradicts nothing. `--offline` verifies signatures only.
 
 `examples/audit_walkthrough.sh` runs the whole thing on a throwaway regtest
 node, including spending a coin after the snapshot.

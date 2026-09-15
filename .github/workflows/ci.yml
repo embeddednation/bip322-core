@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: setup (venv, hash-pinned dependencies, editable install)
+        run: ./setup.sh --no-tests
+      - name: lint
+        run: .venv/bin/ruff check bip322 bip322audit refcheck tests
+      - name: tests (the regtest test skips without the Core binary)
+        run: .venv/bin/python -m pytest -q
+      - name: walkthrough (dummy keys, no node)
+        run: examples/walkthrough.sh /tmp/wt > /tmp/wt.log 2>&1 || (tail -40 /tmp/wt.log; exit 1)
+
+  refcheck:
+    # the reference implementations: ~200 MB of downloads, so on demand only
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: setup with reference binaries
+        run: ./setup.sh --with-refcheck --no-tests
+      - name: regtest end-to-end tests
+        run: .venv/bin/python -m pytest -q tests/test_audit_regtest.py
+      - name: corpus against btclib, btcd, Knots and Core
+        run: .venv/bin/bip322-refcheck corpus
+      - name: audit walkthrough on regtest
+        run: examples/audit_walkthrough.sh /tmp/aw > /tmp/aw.log 2>&1 || (tail -40 /tmp/aw.log; exit 1)

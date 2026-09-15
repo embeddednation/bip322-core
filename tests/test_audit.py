@@ -241,3 +241,45 @@ def test_core_package_stays_pure():
     forbidden = re.compile(r"^\s*(?:from|import)\s+(bip322audit|subprocess|socket|http|urllib|requests|refcheck)\b", re.M)
     for path in Path("bip322").rglob("*.py"):
         assert not forbidden.search(path.read_text()), f"{path} imports chain-facing or audit code"
+
+
+def test_verify_checks_document_consistency_and_wallet_membership(tmp_path, wallet, funded, signer_expressions):
+    directory = _signed_bundle(tmp_path, wallet, funded, signer_expressions)
+    document = finalize_bundle(directory)
+    cli = FakeCli(wallet, funded, tip=1200)
+    good = verify_proofs(document, cli, engines=["btclib"])
+    assert good["ok"] and all(p["address_in_wallet"] for p in good["proofs"]) and good["summary"]["document_consistent"]
+    # an address that is not where the document says it is
+    bad = json.loads(json.dumps(document))
+    bad["proofs"][0]["index"] = 9
+    report = verify_proofs(bad, cli, engines=["btclib"])
+    assert not report["ok"] and report["proofs"][0]["address_in_wallet"] is False and "not branch" in report["document_problems"][0]
+    # a stamp in the document that disagrees with the signed message
+    bad = json.loads(json.dumps(document))
+    bad["stamp"]["height"] += 1
+    report = verify_proofs(bad, cli, engines=["btclib"])
+    assert not report["ok"] and "stamp recorded" in report["document_problems"][0]
+    # message and message_hex disagreeing is refused outright
+    bad = json.loads(json.dumps(document))
+    bad["message"] = bad["message"] + "!"
+    with pytest.raises(AuditError, match="inconsistent"):
+        verify_proofs(bad, cli, engines=["btclib"])
+    # a descriptor that cannot be built is reported, membership unknown
+    bad = json.loads(json.dumps(document))
+    bad["wallet"]["descriptor"] = "wsh(sortedmulti(2,xpub6nope))"
+    report = verify_proofs(bad, cli, engines=["btclib"])
+    assert not report["ok"] and report["proofs"][0]["address_in_wallet"] is None and "unusable" in report["document_problems"][0]
+
+
+def test_verify_scan_reports_unproven_coins(tmp_path, wallet, funded, signer_expressions):
+    directory = _signed_bundle(tmp_path, wallet, funded, signer_expressions)
+    document = finalize_bundle(directory)
+    extra = dict(funded)
+    extra[wallet.derive(3).address] = [(7_000_000, 995)]  # funded after the snapshot, never proven
+    report = verify_proofs(document, FakeCli(wallet, extra, tip=1200), engines=["btclib"], scan=True)
+    holdings = report["current_holdings"]
+    assert holdings["scanned"] == "wallet descriptor" and holdings["total_sat"] == 92_000_000
+    assert holdings["unproven"] == {wallet.derive(3).address: 7_000_000} and holdings["unproven_sat"] == 7_000_000
+    text = format_report(report)
+    assert "not covered by any proof" in text and wallet.derive(3).address in text
+    assert report["ok"]  # unproven coins are reported, not a verdict about the proofs given
