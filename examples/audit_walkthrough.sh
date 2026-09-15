@@ -48,8 +48,8 @@ cat "$WORK/bundle/message.txt"; echo; ls "$WORK/bundle"
 step "4. cosigners A and C sign every PSBT (Coldcards in real life), results go to bundle/signed/"
 for P in "$WORK"/bundle/*.psbt; do
   N=$(basename "$P" .psbt)
-  $DEV signpsbt "$P" "$WORK/cosigner-A.json" -o "$WORK/bundle/signed/$N-ccA.psbt"
-  $DEV signpsbt "$P" "$WORK/cosigner-C.json" -o "$WORK/bundle/signed/$N-ccC.psbt"
+  $DEV signpsbt "$P" "$WORK/cosigner-A.json" -o "$WORK/bundle/signed/$N-ccA-part.psbt"
+  $DEV signpsbt "$P" "$WORK/cosigner-C.json" -o "$WORK/bundle/signed/$N-ccC-part.psbt"
 done
 
 step "5. finalize into proofs.json (combines the partial signatures, self-verifies)"

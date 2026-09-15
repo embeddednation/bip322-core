@@ -21,18 +21,30 @@ from .stamp import fetch_stamp
 DEFAULT_TEMPLATE = "Proof of control {date}"
 
 
+def _opt(args, name: str):
+    """A node option given after the subcommand wins over the same option given before it."""
+    return getattr(args, f"{name}_sub", None) or getattr(args, name, None)
+
+
 def _cli(args) -> BitcoinCli:
-    cli = BitcoinCli(args.cli)
-    if args.wallet:
-        cli.argv.append(f"-rpcwallet={args.wallet}")
+    cli = BitcoinCli(_opt(args, "cli") or "bitcoin-cli")
+    wallet = _opt(args, "wallet")
+    if wallet:
+        cli.argv.append(f"-rpcwallet={wallet}")
     return cli
+
+
+def _add_node_args(p: argparse.ArgumentParser, wallet: bool = True) -> None:
+    p.add_argument("--cli", dest="cli_sub", metavar="CMD", help="how to reach the node (may also be given before the command)")
+    if wallet:
+        p.add_argument("--wallet", "-w", dest="wallet_sub", metavar="NAME", help="the node wallet (may also be given before the command)")
 
 
 def _wallet(args, cli: BitcoinCli) -> Wallet:
     """The wallet: from --descriptor (file or text, cross-checked against the node) or from the node wallet itself."""
     chain = cli.chain()
     network = {"main": "main", "test": "test", "regtest": "regtest", "signet": "signet"}.get(chain, chain)
-    if args.descriptor:
+    if getattr(args, "descriptor", None):
         text = args.descriptor
         wallet = wallet_from_file(text, network=network) if Path(text).is_file() else Wallet.from_descriptor(text, network=network)
         check_wallet_against_node(cli, wallet)
@@ -89,12 +101,13 @@ def cmd_verify(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bip322-audit", description=f"Proof of control of a wallet's coins at a point in time: BIP-322 proofs plus on-chain checks through bitcoin-cli ({SPEC}).")
     parser.add_argument("--version", action="version", version=f"{TOOL} ({SPEC})")
-    parser.add_argument("--cli", default="bitcoin-cli", metavar="CMD", help='how to reach the node, e.g. "bitcoin-cli -signet" or "bitcoin-cli -rpcconnect=10.0.0.5" (default: bitcoin-cli)')
-    parser.add_argument("--wallet", "-w", metavar="NAME", help="the node wallet (bitcoin-cli -rpcwallet=NAME); required when several are loaded. Its descriptor is read from the node.")
+    parser.add_argument("--cli", default=None, metavar="CMD", help='how to reach the node, e.g. "bitcoin-cli -signet" or "bitcoin-cli -rpcconnect=10.0.0.5" (default: bitcoin-cli)')
+    parser.add_argument("--wallet", "-w", default=None, metavar="NAME", help="the node wallet (bitcoin-cli -rpcwallet=NAME); required when several are loaded. Its descriptor is read from the node. May also follow the command.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("stamp", help="print the block stamp line for a message", description="Print `block: HEIGHT HASH TIME` for the block DEPTH blocks behind the node's tip.")
     p.add_argument("--depth", type=int, default=DEFAULT_DEPTH, help=f"blocks behind the tip (default {DEFAULT_DEPTH})")
+    _add_node_args(p, wallet=False)
     p.set_defaults(func=cmd_stamp, examples=["stamp", "--cli 'bitcoin-cli -signet' stamp --depth 3"])
     p.description += " No wallet is needed."
 
@@ -102,8 +115,9 @@ def build_parser() -> argparse.ArgumentParser:
                        description=("Take the snapshot: read the wallet descriptor from the node wallet (or --descriptor), choose the stamp block "
                                     "(tip - DEPTH), find the wallet's coins confirmed at that block "
                                     "(listunspent on the node wallet, or a scantxoutset of the descriptor), compose the message from the template "
-                                    "plus the stamp line, and write snapshot.json, message.txt and <address>.psbt for every funded address. "
+                                    "plus the stamp line, and write snapshot.json, message.txt and one short-named .psbt per funded address. "
                                     "Sign the PSBTs on the cosigners' devices and put the results in <dir>/signed/."))
+    _add_node_args(p)
     p.add_argument("--descriptor", "-d", metavar="FILE|DESC", help="use this descriptor (a file or the text) instead of the node wallet's own; it must be one of the wallet's descriptors")
     p.add_argument("--text", default=DEFAULT_TEMPLATE, help="message template; {date} {time} {height} {hash} are filled from the stamp block (default: '%(default)s')")
     p.add_argument("--depth", type=int, default=DEFAULT_DEPTH, help=f"stamp/snapshot block is this many blocks behind the tip (default {DEFAULT_DEPTH})")
@@ -129,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
                                     "gettxout (amount, address, creation height), and print a report. Exit 0 when the signatures, the stamp and the "
                                     "outputs' existence at the snapshot all check out; coins spent since are reported, not failures."))
     p.add_argument("proofs", metavar="PROOFS", help="proofs.json or the bundle directory")
+    _add_node_args(p, wallet=False)
     p.add_argument("--offline", action="store_true", help="verify the signatures only (no node)")
     p.add_argument("--txindex", action="store_true", help="use getrawtransaction (node with -txindex) to explain outputs no longer in the UTXO set")
     p.add_argument("--scan", action="store_true", help="also scantxoutset the proven addresses for their holdings now")

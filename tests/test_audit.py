@@ -158,11 +158,13 @@ def _signed_bundle(tmp_path, wallet, funded, signer_expressions, cli=None) -> Pa
     written = write_bundle(directory, snapshot, psbts)
     assert (directory / "snapshot.json").exists() and (directory / "message.txt").read_bytes() == snapshot.message.encode()
     assert len([p for p in written if p.suffix == ".psbt"]) == 2 and (directory / "signed").is_dir()
+    files = {a["address"]: a["file"] for a in snapshot.addresses}
+    assert all(len(f) < 30 and f.endswith(".psbt") for f in files.values())
     for address in funded:
         for i, signer in enumerate(signer_expressions[:2]):  # two cosigners, parallel signing
-            psbt = parse_psbt((directory / f"{address}.psbt").read_text())
+            psbt = parse_psbt((directory / files[address]).read_text())
             assert sign_psbt(psbt, signer) == 1
-            (directory / "signed" / f"{address[-6:]}-cc{i}.psbt").write_text(psbt.to_string() + "\n")
+            (directory / "signed" / files[address].replace(".psbt", f"-cc{i}-part.psbt")).write_text(psbt.to_string() + "\n")
     return directory
 
 
@@ -211,7 +213,7 @@ def test_finalize_and_verify_with_fake_node(tmp_path, wallet, funded, signer_exp
 def test_finalize_reports_missing_signatures(tmp_path, wallet, funded, signer_expressions):
     directory = _signed_bundle(tmp_path, wallet, funded, signer_expressions)
     for path in (directory / "signed").iterdir():
-        if path.name.endswith("-cc1.psbt"):
+        if path.name.endswith("-cc1-part.psbt"):
             path.unlink()
     with pytest.raises(AuditError, match="need 2 valid signatures"):
         finalize_bundle(directory)
@@ -227,7 +229,7 @@ def test_cli_end_to_end_with_fake_node(tmp_path, wallet, funded, signer_expressi
     out_dir = tmp_path / "bundle"
     assert audit_cli.main(["stamp", "--depth", "6"]) == 0
     assert capsys.readouterr().out.strip() == fetch_stamp(fake, 6).line()
-    assert audit_cli.main(["-w", "watch", "snapshot", "--text", "Audit {date}", "-o", str(out_dir)]) == 0  # descriptor from the node
+    assert audit_cli.main(["snapshot", "-w", "watch", "--text", "Audit {date}", "-o", str(out_dir)]) == 0  # descriptor from the node, -w after the command
     out, err = capsys.readouterr()
     assert out.strip() == str(out_dir) and json.loads(err)["total_sat"] == 85_000_000
     assert audit_cli.main(["-w", "watch", "snapshot", "-d", str(cfg), "-o", str(out_dir)]) == 2  # not empty
@@ -237,11 +239,12 @@ def test_cli_end_to_end_with_fake_node(tmp_path, wallet, funded, signer_expressi
     assert audit_cli.main(["-w", "watch", "snapshot", "-d", str(other), "-o", str(tmp_path / "x")]) == 2  # not the node's descriptor
     assert "not one of the node wallet" in capsys.readouterr().err
     capsys.readouterr()
+    files = {a["address"]: a["file"] for a in json.loads((out_dir / "snapshot.json").read_text())["addresses"]}
     for address in funded:
-        psbt = parse_psbt((out_dir / f"{address}.psbt").read_text())
+        psbt = parse_psbt((out_dir / files[address]).read_text())
         for signer in signer_expressions[:2]:
             sign_psbt(psbt, signer)
-        (out_dir / "signed" / f"{address}-signed.psbt").write_text(psbt.to_string())
+        (out_dir / "signed" / files[address].replace(".psbt", "-signed.psbt")).write_text(psbt.to_string())
     assert audit_cli.main(["finalize", str(out_dir)]) == 0
     assert capsys.readouterr().out.strip() == str(out_dir / "proofs.json")
     assert audit_cli.main(["verify", str(out_dir), "--report", str(tmp_path / "r.json")]) == 0

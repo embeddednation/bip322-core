@@ -82,10 +82,11 @@ def test_audit_workflow_on_regtest(core, regtest_wallet, signer_expressions, pri
     # ---- sign (software cosigners A and C), finalize, verify -------------------- #
     directory = tmp_path / "bundle"
     write_bundle(directory, snapshot, psbts)
+    files = {a["address"]: a["file"] for a in snapshot.addresses}
     for address in psbts:
-        psbt = parse_psbt((directory / f"{address}.psbt").read_text())
+        psbt = parse_psbt((directory / files[address]).read_text())
         assert sign_psbt(psbt, signer_expressions[0]) == 1 and sign_psbt(psbt, signer_expressions[2]) == 1
-        (directory / "signed" / f"{address}-signed.psbt").write_text(psbt.to_string())
+        (directory / "signed" / files[address].replace(".psbt", "-part.psbt")).write_text(psbt.to_string())
     document = finalize_bundle(directory)
     (directory / "proofs.json").write_text(json.dumps(document, indent=2))
     report = verify_proofs(document, node, txindex=True)
@@ -95,9 +96,9 @@ def test_audit_workflow_on_regtest(core, regtest_wallet, signer_expressions, pri
     assert report["totals"]["verified_unspent_sat"] == 85_000_000
 
     # Bitcoin Core signs the same PSBT and agrees byte for byte with the software cosigners
-    core_signed = node.call("descriptorprocesspsbt", (directory / f"{a0}.psbt").read_text().strip(), private_descriptors[:2])
+    core_signed = node.call("descriptorprocesspsbt", (directory / files[a0]).read_text().strip(), private_descriptors[:2])
     assert core_signed["complete"]
-    ours = parse_psbt((directory / "signed" / f"{a0}-signed.psbt").read_text())
+    ours = parse_psbt((directory / "signed" / files[a0].replace(".psbt", "-part.psbt")).read_text())
     from bip322.psbt import extract_tx, finalize_psbt
 
     finalize_psbt(ours)

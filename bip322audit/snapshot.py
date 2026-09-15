@@ -277,6 +277,7 @@ def take_snapshot(
                 "address": c.derived.address,
                 "branch": c.derived.branch,
                 "index": c.derived.index,
+                "file": psbt_file_name(len(addresses) + 1, c.derived),
                 "utxos": [u.to_dict() for u in c.utxos],
                 "total_sat": c.total_sat,
                 "to_sign_txid": psbt.tx.txid().hex(),
@@ -296,8 +297,14 @@ def take_snapshot(
     return snapshot, psbts
 
 
+def psbt_file_name(sequence: int, derived: DerivedAddress) -> str:
+    """Short, device-friendly PSBT name: ``01-r0-bc1qw7ysc0.psbt`` (sequence, branch+index, address prefix)."""
+    branch = "c" if derived.branch == 1 else "r"
+    return f"{sequence:02d}-{branch}{derived.index}-{derived.address[:9]}.psbt"
+
+
 def write_bundle(directory: Path, snapshot: Snapshot, psbts: dict[str, object]) -> list[Path]:
-    """``snapshot.json``, ``message.txt`` and ``<address>.psbt`` files; returns the written paths."""
+    """``snapshot.json``, ``message.txt`` and one short-named ``.psbt`` per address; returns the written paths."""
     directory.mkdir(parents=True, exist_ok=True)
     written = []
     path = directory / "snapshot.json"
@@ -306,8 +313,9 @@ def write_bundle(directory: Path, snapshot: Snapshot, psbts: dict[str, object]) 
     path = directory / "message.txt"
     path.write_bytes(snapshot.message.encode("utf-8"))  # exact bytes, no trailing newline
     written.append(path)
+    names = {a["address"]: a["file"] for a in snapshot.addresses}
     for address, psbt in psbts.items():
-        path = directory / f"{address}.psbt"
+        path = directory / names.get(address, f"{address}.psbt")
         path.write_text(psbt.to_string() + "\n")
         written.append(path)
     (directory / "signed").mkdir(exist_ok=True)
