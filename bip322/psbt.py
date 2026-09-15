@@ -190,6 +190,8 @@ class PSBTInfo:
     pubkeys: list[str] = field(default_factory=list)
     #: input 0 partial signatures: pubkey hex -> sighash byte
     partial_sigs: dict[str, int] = field(default_factory=dict)
+    #: input 0 cosigners: one entry per known key (from the key paths or the witness script)
+    signers: list[dict] = field(default_factory=list)
     finalized: bool = False
     #: not BIP-322 violations, but things a hardware signer will refuse without
     warnings: list[str] = field(default_factory=list)
@@ -261,8 +263,78 @@ def inspect_psbt(psbt: BIP322PSBT, network: str = "main") -> PSBTInfo:
         if not sig or sig[-1] != SIGHASH_ALL:
             info.problems.append(f"partial signature by {pub.sec().hex()[:16]}... does not use SIGHASH_ALL")
     info.finalized = bool(inp.final_scriptwitness) or bool(inp.final_scriptsig)
+    if not info.finalized:
+        info.signers = signer_report(psbt, 0)
     info.is_bip322 = not info.problems
     return info
+
+
+# --------------------------------------------------------------------------- #
+# signers: who has signed, and does each signature verify
+# --------------------------------------------------------------------------- #
+
+
+def signer_report(psbt: BIP322PSBT, input_index: int = 0) -> list[dict]:
+    """One entry per known key of the input: fingerprint, path, pubkey, and the state of its signature.
+
+    ``signature`` is ``"valid"``, ``"missing"`` or ``"invalid: <reason>"``; each partial
+    signature is verified against the input's sighash exactly as the finalizer does.
+    """
+    inp = psbt.inputs[input_index]
+    keys: list[ec.PublicKey] = []
+    if inp.witness_script is not None:
+        try:
+            keys = list(parse_multisig(inp.witness_script)[1])
+        except Exception:  # noqa: BLE001
+            keys = []
+    for pub in list(inp.bip32_derivations) + list(inp.partial_sigs):
+        if pub not in keys:
+            keys.append(pub)
+    from .wallet import path_to_str
+
+    report = []
+    for pub in keys:
+        derivation = inp.bip32_derivations.get(pub)
+        entry = {
+            "pubkey": pub.sec().hex(),
+            "fingerprint": derivation.fingerprint.hex() if derivation else None,
+            "path": path_to_str(derivation.derivation) if derivation else None,
+        }
+        sig = inp.partial_sigs.get(pub)
+        if sig is None:
+            entry["signature"] = "missing"
+        else:
+            try:
+                check_partial_signature(psbt, input_index, pub, sig)
+                entry["signature"] = "valid"
+            except FinalizeError as exc:
+                entry["signature"] = f"invalid: {exc}"
+        report.append(entry)
+    return report
+
+
+def resolve_signers(psbt: BIP322PSBT, selectors: Sequence[str], input_index: int = 0) -> set[ec.PublicKey]:
+    """Map fingerprints or pubkey (prefixes) to the input's keys; unknown selectors are an error."""
+    inp = psbt.inputs[input_index]
+    known = signer_report(psbt, input_index)
+    chosen: set[ec.PublicKey] = set()
+    for selector in selectors:
+        sel = selector.strip().lower()
+        matches = [e for e in known if sel and (e["fingerprint"] == sel or e["pubkey"].startswith(sel))]
+        if len(matches) != 1:
+            raise FinalizeError(f"signer {selector!r} does not identify exactly one key of input {input_index} "
+                                f"(known: {', '.join((e['fingerprint'] or e['pubkey'][:16]) for e in known)})")
+        chosen.add(next(pub for pub in list(inp.bip32_derivations) + list(inp.partial_sigs) + _script_keys(inp) if pub.sec().hex() == matches[0]["pubkey"]))
+    return chosen
+
+
+def _script_keys(inp) -> list[ec.PublicKey]:
+    if inp.witness_script is None:
+        return []
+    try:
+        return list(parse_multisig(inp.witness_script)[1])
+    except Exception:  # noqa: BLE001
+        return []
 
 
 # --------------------------------------------------------------------------- #
@@ -356,11 +428,20 @@ def _finalize_p2wpkh(psbt: BIP322PSBT, input_index: int, inp, spk: bytes) -> Wit
     raise FinalizeError(f"input {input_index}: no partial signature by the key of this P2WPKH address ({len(inp.partial_sigs)} present)")
 
 
-def finalize_input(psbt: BIP322PSBT, input_index: int, *, strict: bool = True) -> Witness:
-    """Build the witness for one input (BIP-174 input finalizer): P2WSH multisig or P2WPKH."""
+def finalize_input(psbt: BIP322PSBT, input_index: int, *, strict: bool = True, signers: set[ec.PublicKey] | None = None) -> Witness:
+    """Build the witness for one input (BIP-174 input finalizer): P2WSH multisig or P2WPKH.
+
+    ``signers`` restricts which keys' partial signatures may be used (e.g. to prove
+    that a particular pair of cosigners works); every selected signer must have a
+    valid signature.
+    """
     inp = psbt.inputs[input_index]
     if inp.final_scriptwitness:
         return inp.final_scriptwitness
+    if signers is not None:
+        absent = [pub for pub in signers if pub not in inp.partial_sigs]
+        if absent:
+            raise FinalizeError(f"input {input_index}: selected signer(s) without a signature: " + ", ".join(p.sec().hex()[:16] + "..." for p in absent))
     spk = inp.script_pubkey
     if spk is None:
         raise FinalizeError(f"input {input_index}: no witness_utxo / non_witness_utxo")
@@ -379,7 +460,7 @@ def finalize_input(psbt: BIP322PSBT, input_index: int, *, strict: bool = True) -
         rejected: list[str] = []
         for pub in pubkeys:
             sig = inp.partial_sigs.get(pub)
-            if sig is None:
+            if sig is None or (signers is not None and pub not in signers):
                 continue
             try:
                 check_partial_signature(psbt, input_index, pub, sig)
@@ -392,9 +473,10 @@ def finalize_input(psbt: BIP322PSBT, input_index: int, *, strict: bool = True) -
             if len(sigs) == threshold:
                 break
         if len(sigs) < threshold:
-            have = len(inp.partial_sigs)
+            have = len(inp.partial_sigs) if signers is None else len([p for p in signers if p in inp.partial_sigs])
             detail = f" ({'; '.join(rejected)})" if rejected else ""
-            raise FinalizeError(f"input {input_index}: need {threshold} valid signatures, have {len(sigs)} of {have} partial signatures{detail}")
+            scope = " among the selected signers" if signers is not None else ""
+            raise FinalizeError(f"input {input_index}: need {threshold} valid signatures, have {len(sigs)} of {have} partial signatures{scope}{detail}")
         witness = Witness([b""] + sigs + [inp.witness_script.data])
     inp.final_scriptwitness = witness
     if inp.redeem_script is not None:  # sh(wsh()) - not produced by this tool but handled
@@ -417,10 +499,15 @@ def _push(data: bytes) -> bytes:
     return b"\x4d" + len(data).to_bytes(2, "little") + data
 
 
-def finalize_psbt(psbt: BIP322PSBT, *, strict: bool = True) -> BIP322PSBT:
-    """Finalize every input in place and return the PSBT."""
+def finalize_psbt(psbt: BIP322PSBT, *, strict: bool = True, signers: Sequence[str] | None = None) -> BIP322PSBT:
+    """Finalize every input in place and return the PSBT.
+
+    ``signers`` selects cosigners by fingerprint or pubkey prefix; only their
+    signatures are used (input 0), and each must be present and valid.
+    """
+    chosen = resolve_signers(psbt, signers, 0) if signers else None
     for index in range(len(psbt.inputs)):
-        finalize_input(psbt, index, strict=strict)
+        finalize_input(psbt, index, strict=strict, signers=chosen if index == 0 else None)
     return psbt
 
 

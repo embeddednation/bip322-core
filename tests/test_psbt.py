@@ -269,3 +269,65 @@ def test_p2wpkh_reproduces_official_vector_signatures():
         finalize_psbt(psbt)
         ours = signature_from_psbt(psbt)
         assert ours in v["bip322_signatures"], (v["message"], ours, v["bip322_signatures"])
+
+
+def test_signer_report_and_signer_selection(wallet, signer_expressions, masters):
+    from bip322.psbt import resolve_signers, signer_report
+
+    psbt = signed_psbt(wallet, signer_expressions, MESSAGE, index=1)  # all three signed
+    report = signer_report(psbt)
+    assert [e["signature"] for e in report] == ["valid"] * 3
+    fps = {m.my_fingerprint.hex() for m in masters}
+    assert {e["fingerprint"] for e in report} == fps and all(e["path"].startswith("m/48h/0h/0h/2h/0/1") for e in report)
+    assert inspect_psbt(psbt).signers == report
+    # one signature tampered: reported per signer, and the tampered signer cannot be selected
+    pub = next(iter(psbt.inputs[0].partial_sigs))
+    bad = parse_psbt(psbt.to_string())
+    bad.inputs[0].partial_sigs[pub] = bad.inputs[0].partial_sigs[pub][:-1] + b"\x02"
+    states = {e["pubkey"]: e["signature"] for e in signer_report(bad)}
+    assert states[pub.sec().hex()].startswith("invalid") and sum(s == "valid" for s in states.values()) == 2
+    # a missing signer
+    two = signed_psbt(wallet, signer_expressions[:2], MESSAGE, index=1)
+    assert sorted(e["signature"] for e in signer_report(two)) == ["missing", "valid", "valid"]
+
+    # every pair finalizes to a valid, distinct proof
+    address = wallet.derive(1).address
+    fp_list = [m.my_fingerprint.hex() for m in masters]
+    proofs = set()
+    for pair in itertools.combinations(fp_list, 2):
+        p = parse_psbt(psbt.to_string())
+        finalize_psbt(p, signers=list(pair))
+        sig = signature_from_psbt(p)
+        assert verify_message(address, sig, MESSAGE).ok
+        proofs.add(sig)
+    assert len(proofs) == 3
+    # selectors: pubkey prefixes work too; unknown, ambiguous and unsigned selectors are errors
+    p = parse_psbt(psbt.to_string())
+    chosen = resolve_signers(p, [report[0]["fingerprint"], report[1]["pubkey"][:12]])
+    assert {c.sec().hex() for c in chosen} == {report[0]["pubkey"], report[1]["pubkey"]}
+    with pytest.raises(FinalizeError, match="exactly one key"):
+        resolve_signers(p, ["deadbeef"])
+    with pytest.raises(FinalizeError, match="exactly one key"):
+        resolve_signers(p, ["0"])  # prefix matching more than one compressed key
+    with pytest.raises(FinalizeError, match="without a signature"):
+        finalize_psbt(parse_psbt(two.to_string()), signers=fp_list)
+    with pytest.raises(FinalizeError, match="among the selected"):
+        finalize_psbt(parse_psbt(psbt.to_string()), signers=[fp_list[0]])
+
+
+def test_cli_finalize_signers(tmp_path, wallet, signer_expressions, masters, capsys):
+    from bip322.cli import main
+
+    psbt = signed_psbt(wallet, signer_expressions, MESSAGE, index=1)
+    path = tmp_path / "abc.psbt"
+    path.write_text(psbt.to_string())
+    assert main(["analyzepsbt", str(path)]) == 0
+    out = __import__("json").loads(capsys.readouterr().out)
+    assert [s["signature"] for s in out["signers"]] == ["valid"] * 3
+    fps = [m.my_fingerprint.hex() for m in masters]
+    assert main(["finalizepsbt", str(path), "--signers", f"{fps[1]},{fps[2]}"]) == 0
+    sig = capsys.readouterr().out.strip()
+    assert main(["verifymessage", wallet.derive(1).address, sig, MESSAGE.decode()]) == 0
+    capsys.readouterr()
+    assert main(["finalizepsbt", str(path), "--signers", fps[0]]) == 2
+    assert "among the selected" in capsys.readouterr().err

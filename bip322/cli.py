@@ -320,6 +320,7 @@ def cmd_inspect(args) -> int:
         "threshold": info.threshold,
         "pubkeys": info.pubkeys,
         "partial_sigs": info.partial_sigs,
+        "signers": info.signers,
         "finalized": info.finalized,
     }
     print(json.dumps(out, indent=2))
@@ -345,7 +346,9 @@ def cmd_finalize(args) -> int:
     if not info.is_bip322:
         raise CLIError("not a well-formed BIP-322 PSBT: " + "; ".join(info.problems))
     if not info.finalized:
-        finalize_psbt(psbt, strict=not args.lenient)
+        finalize_psbt(psbt, strict=not args.lenient, signers=args.signers.split(",") if args.signers else None)
+    elif args.signers:
+        raise CLIError("the PSBT is already finalized; --signers cannot select signatures any more")
     signature = signature_from_psbt(psbt, args.variant)
     if args.output_psbt:
         _write_psbt(psbt, args.output_psbt, binary=args.binary)
@@ -487,7 +490,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("psbt", help="PSBT file (base64 or binary) or - for stdin")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None, help="address network for the report (default: main)")
     p.description = ("Apply the BIP-322 PSBT-signer checks (message field, to_spend txid, OP_RETURN output, version) and report the state: "
-                     "address, partial signatures present, finalized or not, problems and warnings. Exit 1 if it is not a BIP-322 PSBT.")
+                     "address, every cosigner with whether its signature is present and verifies, finalized or not, problems and warnings. "
+                     "Exit 1 if it is not a BIP-322 PSBT.")
     p.set_defaults(func=cmd_inspect, examples=["analyzepsbt proof.psbt", "analyzepsbt - < proof.psbt"])
 
     p = sub.add_parser("combinepsbt", help="merge partially signed PSBTs from the cosigners")
@@ -502,13 +506,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--variant", choices=["auto", "smp", "ful", "pof"], default="auto", help="encoding to emit (default auto: smp when the BIP allows it, else ful)")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None, help="address network for the report (default: main)")
     p.add_argument("--lenient", action="store_true", help="skip invalid partial signatures instead of failing")
+    p.add_argument("--signers", metavar="FP[,FP...]", help="use only these cosigners' signatures (master fingerprints or pubkey prefixes), e.g. to prove a specific pair works")
     p.add_argument("--output", "-o", help="write the signature (or the --json report) here instead of stdout")
     p.add_argument("--json", action="store_true", help="emit a JSON report (address, message, variant, signature, to_sign hex) instead of the bare signature")
     p.add_argument("--output-psbt", help="also write the finalized PSBT (for the pof variant or for the record)")
     p.add_argument("--binary", action="store_true", help="write --output-psbt in binary instead of base64")
     p.description = ("BIP-174 finalizer: check every partial signature (strict DER, low-S, SIGHASH_ALL, verifies against the sighash), "
                      "build the witness, and print the encoded proof (smp when the BIP allows it, ful otherwise). Does not verify the proof.")
-    p.set_defaults(func=cmd_finalize, examples=["finalizepsbt proof-AB.psbt -o proof.sig", "finalizepsbt proof-AB.psbt --variant ful --json"])
+    p.set_defaults(func=cmd_finalize, examples=["finalizepsbt proof-AB.psbt -o proof.sig", "finalizepsbt proof-ABC.psbt --signers ea34d476,7d5dc65a", "finalizepsbt proof-AB.psbt --variant ful --json"])
 
     p = sub.add_parser("verifymessage", help="verify a BIP-322 signature (same argument order as Bitcoin Core's RPC)")
     p.add_argument("address")
