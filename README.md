@@ -75,6 +75,11 @@ flow, the exact rule sets, known divergences between implementations, exit codes
    challenge address, and returns a signed PSBT (never a finalized
    transaction). The multisig wallet must be enrolled on each Coldcard, or
    *Trust PSBT* enabled so it can be imported from the global xpubs.
+   Confirmed with real devices (2026-09-15). Once a PSBT holds enough
+   signatures for the threshold, a further Coldcard reports "not our key"
+   and adds nothing: sign the original (or a once-signed copy) instead, and
+   `combinepsbt` merges whatever came back; the finalizer uses the first
+   valid signatures in script order and ignores extras.
 
 4. **Combine and finalize:**
 
