@@ -171,10 +171,10 @@ For "we controlled these coins as of block N", repeatable whenever coins move:
 
 ```sh
 bip322-audit -w treasury snapshot --text "Annual audit {date}"      # the node wallet's own descriptor
-#   -> proof-2026-09-14-912345/: snapshot.json, message.txt, to_sign-01.psbt ... one per funded address
-#   sign every PSBT on two Coldcards, put the results into proof-.../signed/
-bip322-audit finalize proof-2026-09-14-912345           # -> proofs.json (hand this to the auditor)
-bip322-audit verify proof-2026-09-14-912345 --txindex --report audit-report.json
+#   -> snapshot-2026-09-14-912345/: snapshot.json, message.txt, to_sign-01.psbt ... one per funded address
+#   sign every PSBT on two Coldcards, put the results into snapshot-.../signed/
+bip322-audit finalize snapshot-2026-09-14-912345           # -> proofs.json (hand this to the auditor)
+bip322-audit verify snapshot-2026-09-14-912345 --txindex --report audit-report.json
 ```
 
 `snapshot` reads the wallet's descriptor from the node wallet (`-w NAME`,

@@ -65,7 +65,7 @@ def cmd_snapshot(args) -> int:
         coldcard_strict=not args.allow_non_coldcard, max_index=args.max_index, utxo_mode=args.utxo,
         progress=lambda line: print(line, file=sys.stderr),
     )
-    directory = Path(args.output) if args.output else Path(f"proof-{snapshot.stamp.time[:10]}-{snapshot.stamp.height}")
+    directory = Path(args.output) if args.output else Path(f"snapshot-{snapshot.stamp.time[:10]}-{snapshot.stamp.height}")
     if directory.exists() and any(directory.iterdir()) and not args.force:
         raise CLIError(f"{directory} exists and is not empty (use --force to add to it)")
     write_bundle(directory, snapshot, psbts)
@@ -125,7 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-index", type=int, default=1000, help="derivation range to consider per branch")
     p.add_argument("--utxo", choices=["witness", "both"], default="witness", help="UTXO fields to embed in the PSBTs")
     p.add_argument("--allow-non-coldcard", action="store_true", help="do not insist on Coldcard's message rules")
-    p.add_argument("--output", "-o", metavar="DIR", help="bundle directory (default proof-<date>-<height>)")
+    p.add_argument("--output", "-o", metavar="DIR", help="bundle directory (default snapshot-<date>-<height>)")
     p.add_argument("--force", action="store_true", help="write into a non-empty directory")
     p.set_defaults(func=cmd_snapshot, examples=["-w treasury snapshot --text 'Annual audit {date}'",
                                                 "--cli 'bitcoin-cli -signet' -w watch snapshot",
@@ -136,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("directory", metavar="DIR", help="the snapshot bundle directory")
     p.add_argument("--lenient", action="store_true", help="skip invalid partial signatures instead of failing")
     p.add_argument("--output", "-o", metavar="FILE", help="proofs file (default DIR/proofs.json)")
-    p.set_defaults(func=cmd_finalize, examples=["finalize proof-2026-09-14-912345"])
+    p.set_defaults(func=cmd_finalize, examples=["finalize snapshot-2026-09-14-912345"])
 
     p = sub.add_parser("verify", help="auditor side: verify proofs.json against the node and report",
                        description=("Verify every BIP-322 signature, check the stamp block with getblockheader, check every listed output with "
@@ -151,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="print the JSON report instead of the summary")
     p.add_argument("--report", metavar="FILE", help="also write the JSON report here")
     p.add_argument("--output", "-o", metavar="FILE", help="write the printed output here instead of stdout")
-    p.set_defaults(func=cmd_verify, examples=["verify proof-2026-09-14-912345", "verify proofs.json --json --report audit-report.json", "verify proofs.json --offline"])
+    p.set_defaults(func=cmd_verify, examples=["verify snapshot-2026-09-14-912345", "verify proofs.json --json --report audit-report.json", "verify proofs.json --offline"])
 
     add_help_command("bip322-audit", sub, {"Workflow": ["stamp", "snapshot", "finalize", "verify", "help"]})
     return parser
