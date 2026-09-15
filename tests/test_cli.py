@@ -277,3 +277,28 @@ def test_cli_help_command(capsys):
     assert 'signpsbt "psbt" "key"...' in out
     assert dev_main(["help", "signpsbt"]) == 0
     assert "> bip322-dev signpsbt" in capsys.readouterr().out
+
+
+def test_cli_decodesignature(wallet, signer_expressions, capsys):
+    from bip322.core import disassemble
+    from bip322.psbt import signature_from_psbt
+    from tests.helpers import finalized_psbt
+
+    psbt = finalized_psbt(wallet, signer_expressions[:2], b"decode me", index=2)
+    derived = wallet.derive(2)
+    assert main(["decodesignature", signature_from_psbt(psbt)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    roles = [w["role"] for w in out["witness"]]
+    assert out["variant"] == "smp" and roles[0].startswith("empty") and roles[1:3] == ["ECDSA signature (DER + sighash byte)"] * 2
+    assert out["witness"][1]["sighash"] == 1 and out["witness"][3]["role"] == "witness script"
+    asm = out["witness"][3]["asm"]
+    assert asm.startswith("OP_2 ") and asm.endswith(" OP_3 OP_CHECKMULTISIG") and all(pk.hex() in asm for pk in derived.pubkeys)
+    assert disassemble(b"\x76\xa9\x14" + b"\x11" * 20 + b"\x88\xac") == "OP_DUP OP_HASH160 " + "11" * 20 + " OP_EQUALVERIFY OP_CHECKSIG"
+    assert main(["decodesignature", signature_from_psbt(psbt, "ful")]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["variant"] == "ful" and out["to_sign"]["version"] == 0 and out["to_sign"]["outputs"] == [{"value": 0, "scriptPubKey": "6a"}]
+    assert out["to_sign"]["inputs"][0]["witness"][3]["role"] == "witness script"
+    assert main(["decodesignature", signature_from_psbt(psbt, "pof")]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["variant"] == "pof" and out["psbt"]["message_utf8"] == "decode me" and out["psbt"]["inputs"][0]["finalized"]
+    assert main(["decodesignature", "smp!!"]) == 2

@@ -11,7 +11,17 @@ from embit.networks import NETWORKS
 
 from ._version import SPEC, __version__
 from .coldcard import lint_message_for_coldcard
-from .core import BIP322Error, build_to_spend
+from .core import (
+    PREFIX_FULL,
+    PREFIX_POF,
+    PREFIX_SIMPLE,
+    BIP322Error,
+    build_to_spend,
+    decode_signature,
+    describe_witness,
+    parse_transaction,
+    parse_witness,
+)
 from .engines import available_engines, engine_labels, engine_versions
 from .psbt import (
     BIP322PSBT,
@@ -425,6 +435,46 @@ def cmd_checksigners(args) -> int:
     return 0 if report["ok"] else 1
 
 
+def cmd_decodesignature(args) -> int:
+    """Open a proof string into its parts, like Core's decoderawtransaction."""
+    text = sys.stdin.read() if args.signature == "-" else args.signature
+    decoded = decode_signature(text)
+    out: dict = {"variant": decoded.variant, "prefixed": decoded.prefixed, "payload_bytes": len(decoded.payload)}
+    if decoded.variant == PREFIX_SIMPLE:
+        out["witness"] = describe_witness(parse_witness(decoded.payload))
+        out["note"] = "the simple variant is the witness stack of to_sign input 0; to_sign itself is implied (version 0, locktime 0, sequence 0)"
+    elif decoded.variant == PREFIX_FULL:
+        tx = parse_transaction(decoded.payload)
+        out["to_sign"] = {
+            "txid": tx.txid().hex(),
+            "version": tx.version,
+            "locktime": tx.locktime,
+            "inputs": [
+                {"txid": vin.txid.hex(), "vout": vin.vout, "sequence": vin.sequence,
+                 "scriptSig": vin.script_sig.data.hex(), "witness": describe_witness(vin.witness.items)}
+                for vin in tx.vin
+            ],
+            "outputs": [{"value": o.value, "scriptPubKey": o.script_pubkey.data.hex()} for o in tx.vout],
+        }
+    elif decoded.variant == PREFIX_POF:
+        psbt = parse_psbt(decoded.payload)
+        tx = psbt.tx
+        out["psbt"] = {
+            "inputs": [
+                {"txid": inp.txid.hex(), "vout": inp.vout, "finalized": bool(inp.final_scriptwitness) or bool(inp.final_scriptsig),
+                 "witness": describe_witness(inp.final_scriptwitness.items) if inp.final_scriptwitness else []}
+                for inp in psbt.inputs
+            ],
+            "outputs": [{"value": o.value, "scriptPubKey": o.script_pubkey.data.hex()} for o in tx.vout],
+            "message_utf8": psbt.message.decode("utf-8", errors="replace") if psbt.message else None,
+        }
+    else:
+        out["note"] = "65-byte payload: a legacy BIP-137 signature (recoverable ECDSA), P2PKH only"
+        out["hex"] = decoded.payload.hex()
+    _emit(json.dumps(out, indent=2), args.output)
+    return 0
+
+
 def cmd_lint(args) -> int:
     message = _message_bytes(args, _positional_values(args, [("message", "message_file")]).get("message"))
     problems = lint_message_for_coldcard(message)
@@ -564,6 +614,14 @@ def build_parser() -> argparse.ArgumentParser:
                                               'verifymessage bc1q... "proof of control 2026-09-14" --signature-file proof.sig --json'])
     p.epilog = "exit codes: 0 valid, 1 invalid, 3 inconclusive, 2 error"
 
+    p = sub.add_parser("decodesignature", help="open a proof string into its parts (witness stack, to_sign or PSBT)")
+    p.add_argument("signature", help="an smp/ful/pof proof string, or - to read it from stdin")
+    p.add_argument("--output", "-o", help="write the JSON here instead of stdout")
+    p.description = ("Decode a BIP-322 signature: for smp the witness stack (each element labelled: dummy, signatures with their "
+                     "sighash byte, the witness script disassembled), for ful the whole to_sign transaction, for pof the finalized PSBT. "
+                     "Nothing is verified; use verifymessage for that.")
+    p.set_defaults(func=cmd_decodesignature, examples=["decodesignature smp...", "decodesignature - < proof.sig"])
+
     p = sub.add_parser("lint-message", help="check a message against Coldcard's display rules")
     p.add_argument("values", nargs="*", metavar="MESSAGE")
     _add_message_file(p)
@@ -577,7 +635,7 @@ def build_parser() -> argparse.ArgumentParser:
         "Wallet": ["wallet", "deriveaddresses", "getaddressinfo"],
         "PSBT": ["createpsbt", "analyzepsbt", "combinepsbt", "finalizepsbt"],
         "Verification": ["verifymessage", "checksigners"],
-        "Util": ["lint-message", "engines", "help"],
+        "Util": ["decodesignature", "lint-message", "engines", "help"],
     })
     return parser
 

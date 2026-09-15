@@ -195,6 +195,64 @@ def encode_pof(psbt_bytes: bytes) -> str:
     return PREFIX_POF + _b64(bytes(psbt_bytes))
 
 
+_OPCODE_NAMES = {0x00: "OP_0", 0xAC: "OP_CHECKSIG", 0xAD: "OP_CHECKSIGVERIFY", 0xAE: "OP_CHECKMULTISIG", 0xAF: "OP_CHECKMULTISIGVERIFY",
+                 0x63: "OP_IF", 0x64: "OP_NOTIF", 0x67: "OP_ELSE", 0x68: "OP_ENDIF", 0x69: "OP_VERIFY", 0x6A: "OP_RETURN", 0x75: "OP_DROP",
+                 0x76: "OP_DUP", 0x87: "OP_EQUAL", 0x88: "OP_EQUALVERIFY", 0xA9: "OP_HASH160", 0xA8: "OP_SHA256", 0x9C: "OP_NUMEQUAL",
+                 0xB1: "OP_CHECKLOCKTIMEVERIFY", 0xB2: "OP_CHECKSEQUENCEVERIFY", 0xBA: "OP_CHECKSIGADD", 0x7C: "OP_SWAP", 0x7B: "OP_ROT",
+                 0x9A: "OP_BOOLAND", 0x9B: "OP_BOOLOR", 0x82: "OP_SIZE", 0x8B: "OP_1ADD", 0x93: "OP_ADD", 0xA0: "OP_GREATERTHAN"}
+
+
+def disassemble(script: bytes) -> str:
+    """Human-readable form of a script: opcodes by name, pushes as hex (enough for the scripts this tool handles)."""
+    out = []
+    i = 0
+    n = len(script)
+    while i < n:
+        op = script[i]
+        i += 1
+        if 1 <= op <= 0x4B:
+            out.append(script[i : i + op].hex())
+            i += op
+        elif op in (0x4C, 0x4D, 0x4E):
+            width = {0x4C: 1, 0x4D: 2, 0x4E: 4}[op]
+            length = int.from_bytes(script[i : i + width], "little")
+            i += width
+            out.append(script[i : i + length].hex())
+            i += length
+        elif 0x51 <= op <= 0x60:
+            out.append(f"OP_{op - 0x50}")
+        elif op == 0x4F:
+            out.append("OP_1NEGATE")
+        else:
+            out.append(_OPCODE_NAMES.get(op, f"OP_UNKNOWN_{op:02x}"))
+    return " ".join(out)
+
+
+def describe_witness(items: Sequence[bytes]) -> list[dict]:
+    """Label each witness element: empty dummy, ECDSA/Schnorr signature with its sighash, script, or data."""
+    described = []
+    for index, item in enumerate(items):
+        entry = {"index": index, "hex": item.hex(), "bytes": len(item)}
+        if not item:
+            entry["role"] = "empty (CHECKMULTISIG dummy)" if index == 0 else "empty"
+        elif item[0] == 0x30 and 9 <= len(item) <= 73:
+            entry["role"] = "ECDSA signature (DER + sighash byte)"
+            entry["sighash"] = item[-1]
+        elif len(item) in (64, 65) and index != len(items) - 1:
+            entry["role"] = "Schnorr signature" + (" + sighash byte" if len(item) == 65 else " (SIGHASH_DEFAULT)")
+            if len(item) == 65:
+                entry["sighash"] = item[-1]
+        elif len(item) == 33 and item[0] in (2, 3):
+            entry["role"] = "compressed public key"
+        elif index == len(items) - 1 and len(item) > 33:
+            entry["role"] = "witness script"
+            entry["asm"] = disassemble(item)
+        else:
+            entry["role"] = "data"
+        described.append(entry)
+    return described
+
+
 @dataclass(frozen=True)
 class DecodedSignature:
     variant: str  # "smp" | "ful" | "pof" | "legacy"
