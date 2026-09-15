@@ -68,11 +68,11 @@ def cmd_snapshot(args) -> int:
     directory = Path(args.output) if args.output else Path(f"proof-{snapshot.stamp.time[:10]}-{snapshot.stamp.height}")
     if directory.exists() and any(directory.iterdir()) and not args.force:
         raise CLIError(f"{directory} exists and is not empty (use --force to add to it)")
-    written = write_bundle(directory, snapshot, psbts)
+    write_bundle(directory, snapshot, psbts)
     print(json.dumps({"directory": str(directory), "stamp": snapshot.stamp.to_dict(), "source": snapshot.source, "policy": snapshot.policy,
                       "addresses": len(snapshot.addresses), "utxos": sum(len(a["utxos"]) for a in snapshot.addresses),
                       "total_sat": snapshot.total_sat, "message": snapshot.message,
-                      "psbts": [p.name for p in written if p.suffix == ".psbt"]}, indent=2), file=sys.stderr)
+                      "psbts": {a["file"]: f"{a['address']} ({a['total_sat']} sat)" for a in snapshot.addresses}}, indent=2), file=sys.stderr)
     print(str(directory))
     return 0
 
@@ -115,7 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
                        description=("Take the snapshot: read the wallet descriptor from the node wallet (or --descriptor), choose the stamp block "
                                     "(tip - DEPTH), find the wallet's coins confirmed at that block "
                                     "(listunspent on the node wallet, or a scantxoutset of the descriptor), compose the message from the template "
-                                    "plus the stamp line, and write snapshot.json, message.txt and one short-named .psbt per funded address. "
+                                    "plus the stamp line, and write snapshot.json, message.txt and proof-NN.psbt per funded address (the address of each is in snapshot.json). "
                                     "Sign the PSBTs on the cosigners' devices and put the results in <dir>/signed/."))
     _add_node_args(p)
     p.add_argument("--descriptor", "-d", metavar="FILE|DESC", help="use this descriptor (a file or the text) instead of the node wallet's own; it must be one of the wallet's descriptors")

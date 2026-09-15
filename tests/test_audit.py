@@ -159,7 +159,7 @@ def _signed_bundle(tmp_path, wallet, funded, signer_expressions, cli=None) -> Pa
     assert (directory / "snapshot.json").exists() and (directory / "message.txt").read_bytes() == snapshot.message.encode()
     assert len([p for p in written if p.suffix == ".psbt"]) == 2 and (directory / "signed").is_dir()
     files = {a["address"]: a["file"] for a in snapshot.addresses}
-    assert all(len(f) < 30 and f.endswith(".psbt") for f in files.values())
+    assert sorted(files.values()) == ["proof-01.psbt", "proof-02.psbt"]
     for address in funded:
         for i, signer in enumerate(signer_expressions[:2]):  # two cosigners, parallel signing
             psbt = parse_psbt((directory / files[address]).read_text())

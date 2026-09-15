@@ -297,10 +297,9 @@ def take_snapshot(
     return snapshot, psbts
 
 
-def psbt_file_name(sequence: int, derived: DerivedAddress) -> str:
-    """Short, device-friendly PSBT name: ``01-r0-bc1qw7ysc0.psbt`` (sequence, branch+index, address prefix)."""
-    branch = "c" if derived.branch == 1 else "r"
-    return f"{sequence:02d}-{branch}{derived.index}-{derived.address[:9]}.psbt"
+def psbt_file_name(sequence: int, derived: DerivedAddress) -> str:  # noqa: ARG001 - the address lives in snapshot.json
+    """Plain sequence names (``proof-01.psbt``): short on a device screen, and the devices append ``-part`` to them."""
+    return f"proof-{sequence:02d}.psbt"
 
 
 def write_bundle(directory: Path, snapshot: Snapshot, psbts: dict[str, object]) -> list[Path]:
