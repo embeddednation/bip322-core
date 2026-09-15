@@ -128,7 +128,37 @@ pins exact versions with sha256 hashes; install with
 mangles transaction version 0 and sequence 0 (`or`-defaults); `BIP322PSBT`
 overrides both, and a test guards it.
 
-## 9. Test evidence
+## 9. The audit tool (`bip322audit/`)
+
+Everything chain-facing lives in a separate package with its own command,
+`bip322-audit`; a test asserts that `bip322/` never imports it, nor
+`subprocess`, sockets or HTTP. The node is reached only through `bitcoin-cli`,
+so the user's node, chain and credentials are what is trusted and the tool
+holds none.
+
+* **Stamp.** `block: HEIGHT HASH TIME`, all three from the block `depth`
+  behind the tip (default 6). The hash is a *not before* bound; height and
+  header time make it readable and checkable with one `getblockheader`. It is
+  part of the signed message, never PSBT metadata. It is not replay
+  protection: a counterparty wanting freshness supplies a nonce.
+* **Snapshot semantics.** The stamp block is the snapshot block; only outputs
+  confirmed at or before it are listed, so a bundle means "these coins, at
+  that block". Coins come from `listunspent` (a Core wallet with the
+  descriptor; its `desc` field gives branch and index) or `scantxoutset`.
+* **Proof of funds without `pof`.** One `smp` proof per funded address; the
+  auditor establishes the coins from the chain. Nothing signed references a
+  real output, so the safety of `pof`'s bogus-input construction is never
+  relied on. Outpoints are not repeated in the message (control of the script
+  covers every output paying to it).
+* **Verdict.** `verify` is OK when every signature is valid, the stamp block
+  is in the node's main chain with the claimed height and time, and no listed
+  output is contradicted by the node (different amount, address or creation
+  height). Outputs no longer in the UTXO set are reported as spent or unknown;
+  with `--txindex` their existence at the snapshot block is confirmed, but
+  "unspent at the snapshot" cannot be shown without a spend index, and the
+  report says so.
+
+## 10. Test evidence
 
 * `tests/`: 150+ cases including every official BIP-322 vector (basic and
   generated: P2WPKH, P2WSH 2-of-2/3-of-3, P2TR, P2SH-wrapped, time locks,
@@ -141,3 +171,7 @@ overrides both, and a test guards it.
   (`deriveaddresses`, `decodepsbt`, `descriptorprocesspsbt`, `finalizepsbt`,
   `signrawtransactionwithkey`); Core's finalized `to_sign` is byte-identical
   to this tool's.
+* `tests/test_audit.py` runs the audit workflow against a fake node;
+  `tests/test_audit_regtest.py` runs it against a real regtest Bitcoin Core:
+  fund the wallet, snapshot from `listunspent` and from `scantxoutset`, sign,
+  finalize, verify, spend a coin, verify again.

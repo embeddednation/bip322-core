@@ -11,3 +11,4 @@ dist/
 refcheck/btcd/build.log
 examples/out/
 demo/
+examples/audit-out/

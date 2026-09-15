@@ -20,9 +20,10 @@ dev = ["pytest>=8"]
 bip322 = "bip322.cli:main"
 bip322-dev = "bip322.dev.cli:main"
 bip322-refcheck = "refcheck.verify_one:main"
+bip322-audit = "bip322audit.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["bip322*", "refcheck*"]
+include = ["bip322*", "bip322audit*", "refcheck*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

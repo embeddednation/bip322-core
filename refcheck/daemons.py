@@ -23,12 +23,16 @@ class RPCError(Exception):
 class Daemon:
     """A regtest bitcoind with no wallet and no networking, reachable over JSON-RPC."""
 
-    def __init__(self, bindir: Path, datadir: Path, rpcport: int, name: str = "bitcoind", chain: str = "regtest"):
+    def __init__(self, bindir: Path, datadir: Path, rpcport: int, name: str = "bitcoind", chain: str = "regtest",
+                 wallet: bool = False, extra_args: tuple[str, ...] = ()):
         self.bitcoind = Path(bindir) / "bitcoind"
+        self.bitcoin_cli = Path(bindir) / "bitcoin-cli"
         self.datadir = Path(datadir)
         self.rpcport = rpcport
         self.name = name
         self.chain = chain
+        self.wallet = wallet
+        self.extra_args = tuple(extra_args)
         self.proc: subprocess.Popen | None = None
         self.auth = base64.b64encode(b"refcheck:refcheck").decode()
 
@@ -43,7 +47,9 @@ class Daemon:
         args = [
             str(self.bitcoind), f"-chain={self.chain}", f"-datadir={self.datadir}", f"-rpcport={self.rpcport}",
             "-rpcbind=127.0.0.1", "-rpcallowip=127.0.0.1", "-rpcuser=refcheck", "-rpcpassword=refcheck",
-            "-server=1", "-listen=0", "-connect=0", "-dnsseed=0", "-disablewallet=1", "-printtoconsole=0",
+            "-server=1", "-listen=0", "-connect=0", "-dnsseed=0", "-printtoconsole=0",
+            *(["-fallbackfee=0.0001"] if self.wallet else ["-disablewallet=1"]),
+            *self.extra_args,
         ]
         self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = time.time() + timeout
@@ -56,6 +62,13 @@ class Daemon:
             except (RPCError, OSError, ValueError):
                 time.sleep(0.25)
         raise RuntimeError(f"{self.name} did not become ready within {timeout}s")
+
+    def cli_argv(self, rpcwallet: str | None = None) -> list[str]:
+        """A bitcoin-cli command line for this daemon (for tools that shell out to bitcoin-cli)."""
+        argv = [str(self.bitcoin_cli), f"-chain={self.chain}", f"-rpcport={self.rpcport}", "-rpcuser=refcheck", "-rpcpassword=refcheck"]
+        if rpcwallet:
+            argv.append(f"-rpcwallet={rpcwallet}")
+        return argv
 
     def rpc(self, method: str, *params):
         body = json.dumps({"jsonrpc": "1.0", "id": "refcheck", "method": method, "params": list(params)}).encode()

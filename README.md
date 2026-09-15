@@ -15,6 +15,7 @@ Three independent things live here:
 | `bip322/` | The tool: build the BIP-322 PSBT from a wallet descriptor, combine cosigner PSBTs, finalize, encode, verify. Command `bip322`. No private keys pass through it. |
 | `bip322/dev/` | Scaffolding that handles private keys: dummy cosigners, wallet assembly, software signing. Command `bip322-dev`. Not needed with hardware cosigners; kept apart so the audited surface stays small. |
 | `tests/` | 120 pytest cases: the official BIP-322 vectors, a full 2-of-3 roundtrip for every signer pair, negatives, CLI. |
+| `bip322audit/` | The audit workflow: proof of control of a wallet's coins at a point in time. Stamp block, coins from the node, one PSBT per funded address, finalize, and the auditor's verification (signatures, stamp, every output). Command `bip322-audit`; the only package that talks to a node, through `bitcoin-cli`. |
 | `refcheck/` | Cross-checks against the reference implementations: btcd's `bip322` package, Bitcoin Knots' `verifymessage`, Bitcoin Core 31.1 as signer/finalizer, and btclib. Command `bip322-refcheck` (needs the downloaded binaries). |
 
 ## Install
@@ -146,6 +147,38 @@ keygen JSON files, files containing a key, or key text.
 The script also runs three negative checks and `refcheck.verify_one`, which
 ends with five independent verifiers agreeing. Artifacts land in `examples/out/`.
 
+## Audit workflow (`bip322-audit`)
+
+For "we controlled these coins as of block N", repeatable whenever coins move:
+
+```sh
+bip322-audit --cli "bitcoin-cli -rpcwallet=watch" snapshot -w wallet.desc --text "Annual audit {date}"
+#   -> proof-2026-09-14-912345/: snapshot.json, message.txt, <address>.psbt per funded address
+#   sign every PSBT on two Coldcards, put the results into proof-.../signed/
+bip322-audit finalize proof-2026-09-14-912345           # -> proofs.json (hand this to the auditor)
+bip322-audit --cli "bitcoin-cli" verify proof-2026-09-14-912345 --txindex --report audit-report.json
+```
+
+`snapshot` takes the block six behind the tip (`--depth`) as the stamp *and*
+the snapshot height: the message ends with `block: HEIGHT HASH TIME` taken
+from that block, and only outputs confirmed at that block are listed. Coins
+come from `listunspent` on a Core wallet holding the descriptor
+(`-rpcwallet=` in `--cli`) or from `scantxoutset` of the descriptor
+(`--source scantxoutset`, no Core wallet needed). The template accepts
+`{date}`, `{time}`, `{height}`, `{hash}`, and is checked against Coldcard's
+message rules.
+
+`verify` re-checks everything on the auditor's node: each BIP-322 signature,
+the stamp block (`getblockheader`: height, time, in main chain), and each
+listed output with `gettxout` (amount, address, creation height at or before
+the stamp). Outputs spent since the snapshot are reported, not failures;
+`--txindex` on a node with `-txindex` confirms they existed at the snapshot.
+The result is OK when the signatures and the stamp check out and the node
+contradicts nothing. `--offline` verifies signatures only.
+
+`examples/audit_walkthrough.sh` runs the whole thing on a throwaway regtest
+node, including spending a coin after the snapshot.
+
 ## Verification semantics
 
 `verify_message()` implements the BIP's verification process:
@@ -238,6 +271,7 @@ bip322/cli.py         bip322 command
 bip322/dev/signing.py software signing (tests, non-hardware cosigners)
 bip322/dev/keys.py    dummy cosigner generation, wallet assembly from keys
 bip322/dev/cli.py     bip322-dev command (keygen, makewallet, signpsbt)
+bip322audit/          bip322-audit: rpc.py (bitcoin-cli), stamp.py, snapshot.py, audit.py, cli.py
 tests/                pytest suite and official vectors
 refcheck/             reference harness (fetch.sh, btcd/, run_refcheck.py)
 ```
