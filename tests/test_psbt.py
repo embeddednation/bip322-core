@@ -331,3 +331,45 @@ def test_cli_finalize_signers(tmp_path, wallet, signer_expressions, masters, cap
     capsys.readouterr()
     assert main(["finalizepsbt", str(path), "--signers", fps[0]]) == 2
     assert "among the selected" in capsys.readouterr().err
+
+
+def test_checksigners(wallet, signer_expressions, masters, tmp_path, capsys):
+    from bip322.cli import main
+    from bip322.verify import check_signers
+
+    psbt = signed_psbt(wallet, signer_expressions, MESSAGE, index=1)
+    report = check_signers(psbt, engines=("btclib",))
+    assert report["ok"] and report["summary"] == {"signers_valid": "3/3", "combinations_valid": "3/3"}
+    assert len({c["signature"] for c in report["combinations"]}) == 3 and all(c["state"] == "valid" for c in report["combinations"])
+    assert {tuple(c["signers"]) for c in report["combinations"]} == {tuple(sorted(p)) if False else tuple(p) for p in itertools.combinations([s["fingerprint"] for s in report["signers"]], 2)}
+    # the untouched PSBT is still unfinalized with its three partial signatures
+    assert len(psbt.inputs[0].partial_sigs) == 3 and psbt.inputs[0].final_scriptwitness is None
+    # one signer missing: signers 2/3, combinations 1/3, not ok
+    two = signed_psbt(wallet, signer_expressions[:2], MESSAGE, index=1)
+    report = check_signers(two, engines=("btclib",))
+    assert not report["ok"] and report["summary"] == {"signers_valid": "2/3", "combinations_valid": "1/3"}
+    # one signature tampered: reported and excluded
+    bad = parse_psbt(psbt.to_string())
+    pub = next(iter(bad.inputs[0].partial_sigs))
+    bad.inputs[0].partial_sigs[pub] = bad.inputs[0].partial_sigs[pub][:-1] + b"\x02"
+    report = check_signers(bad, engines=("btclib",))
+    assert not report["ok"] and report["summary"]["signers_valid"] == "2/3" and report["summary"]["combinations_valid"] == "1/3"
+    # CLI
+    path = tmp_path / "abc.psbt"
+    path.write_text(psbt.to_string())
+    assert main(["checksigners", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "RESULT: OK" in out and out.count("VALID") == 3 and "signers valid: 3/3" in out
+    path.write_text(two.to_string())
+    assert main(["checksigners", str(path), "--json"]) == 1
+    assert __import__("json").loads(capsys.readouterr().out)["summary"]["combinations_valid"] == "1/3"
+
+
+def test_checksigners_p2wpkh(wpkh):
+    from bip322.verify import check_signers
+
+    wallet, signer = wpkh
+    psbt = create_psbt(wallet.derive(2), MESSAGE)
+    assert sign_psbt(psbt, signer) == 1
+    report = check_signers(psbt, engines=("btclib",))
+    assert report["ok"] and report["summary"] == {"signers_valid": "1/1", "combinations_valid": "1/1"}

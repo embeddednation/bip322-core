@@ -32,7 +32,18 @@ from .core import (
     parse_witness,
 )
 from .engines import BTCLIB_REQUIRED, BTCLIB_UPGRADEABLE, EngineRun, btclib_run, check_engines, kernel_run
-from .psbt import extract_tx, is_finalized, parse_psbt, psbt_prevouts
+from .psbt import (
+    BIP322PSBT,
+    FinalizeError,
+    extract_tx,
+    finalize_psbt,
+    inspect_psbt,
+    is_finalized,
+    parse_psbt,
+    psbt_prevouts,
+    signature_from_psbt,
+    signer_report,
+)
 
 
 class State(str, Enum):
@@ -271,6 +282,67 @@ def verify_message(
         notes.append(f"{result.extra_inputs} additional input(s) signed; their existence in the UTXO set was not checked")
     result.reason = "valid" + (" " + "; ".join(notes) if notes else "")
     return result
+
+
+def check_signers(psbt: BIP322PSBT, *, engines: Sequence[str] = ("btclib",), network: str = "main") -> dict:
+    """Exercise every cosigner and every threshold-sized combination of them.
+
+    From one PSBT carrying all partial signatures: verify each signature on its
+    own, then for every combination of ``threshold`` signers finalize a copy
+    with only those signatures and verify the resulting proof.  ``ok`` means
+    every known signer has a valid signature and every combination verifies.
+    """
+    import copy
+    import itertools
+
+    info = inspect_psbt(psbt, network=network)
+    report: dict = {
+        "is_bip322": info.is_bip322,
+        "problems": info.problems,
+        "address": info.address,
+        "message_utf8": (info.message or b"").decode("utf-8", errors="replace"),
+        "threshold": info.threshold,
+        "signers": signer_report(psbt, 0),
+        "combinations": [],
+    }
+    valid_signers = [s for s in report["signers"] if s["signature"] == "valid"]
+    threshold = info.threshold or 1
+    # a broken signature is what this check is for; only structural problems stop the combinations
+    structural = [p for p in info.problems if "partial signature" not in p]
+    report["structural_problems"] = structural
+    if not structural and info.message is not None and info.address:
+        for combo in itertools.combinations(valid_signers, threshold):
+            selectors = [s["fingerprint"] or s["pubkey"] for s in combo]
+            row = {"signers": [s["fingerprint"] or s["pubkey"][:16] for s in combo], "state": "invalid", "reason": "", "signature": None}
+            try:
+                trial = copy.deepcopy(psbt)
+                finalize_psbt(trial, signers=selectors)
+                signature = signature_from_psbt(trial)
+                verdict = verify_message(info.address, signature, info.message, engines=engines)
+                row.update({"state": verdict.state.value, "reason": verdict.reason, "signature": signature})
+            except FinalizeError as exc:
+                row["reason"] = str(exc)
+            report["combinations"].append(row)
+    expected = _n_choose_k(len(report["signers"]), threshold) if report["signers"] else 0
+    report["summary"] = {
+        "signers_valid": f"{len(valid_signers)}/{len(report['signers'])}",
+        "combinations_valid": f"{sum(c['state'] == 'valid' for c in report['combinations'])}/{expected}",
+    }
+    report["ok"] = bool(
+        not structural
+        and report["signers"]
+        and len(valid_signers) == len(report["signers"])
+        and expected > 0
+        and all(c["state"] == "valid" for c in report["combinations"])
+        and len(report["combinations"]) == expected
+    )
+    return report
+
+
+def _n_choose_k(n: int, k: int) -> int:
+    from math import comb
+
+    return comb(n, k) if 0 <= k <= n else 0
 
 
 def verify_to_sign(address: str, to_sign: Transaction, message: bytes, **kwargs) -> VerifyResult:

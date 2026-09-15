@@ -23,7 +23,7 @@ from .psbt import (
     parse_psbt,
     signature_from_psbt,
 )
-from .verify import State, verify_message
+from .verify import State, check_signers, verify_message
 from .wallet import Wallet, wallet_from_file
 
 
@@ -402,6 +402,29 @@ def cmd_verify(args) -> int:
 EXIT_BY_STATE = {State.VALID: 0, State.INVALID: 1, State.INCONCLUSIVE: 3}
 
 
+def cmd_checksigners(args) -> int:
+    psbt = _read_psbt(args.psbt)
+    engines = args.engines.split(",") if args.engines else available_engines()
+    report = check_signers(psbt, engines=engines, network=_network(args) or "main")
+    if args.json:
+        _emit(json.dumps(report, indent=2), args.output)
+    else:
+        lines = [f"address   {report['address']}", f"message   {report['message_utf8']!r}", f"threshold {report['threshold']}", ""]
+        for s in report["signers"]:
+            lines.append(f"  signer {s['fingerprint'] or '?'}  {s['path'] or ''}  {s['pubkey'][:16]}...  {s['signature']}")
+        lines.append("")
+        for c in report["combinations"]:
+            lines.append(f"  {'+'.join(c['signers']):<28} {c['state'].upper():<12} {c['reason'] if c['state'] != 'valid' else ''}".rstrip())
+        for p in report["problems"]:
+            lines.append(f"  problem: {p}")
+        summary = report["summary"]
+        lines.append("")
+        lines.append(f"signers valid: {summary['signers_valid']}; combinations valid: {summary['combinations_valid']}")
+        lines.append("RESULT: " + ("OK" if report["ok"] else "FAILED"))
+        _emit("\n".join(lines), args.output)
+    return 0 if report["ok"] else 1
+
+
 def cmd_lint(args) -> int:
     message = _message_bytes(args, _positional_values(args, [("message", "message_file")]).get("message"))
     problems = lint_message_for_coldcard(message)
@@ -515,6 +538,17 @@ def build_parser() -> argparse.ArgumentParser:
                      "build the witness, and print the encoded proof (smp when the BIP allows it, ful otherwise). Does not verify the proof.")
     p.set_defaults(func=cmd_finalize, examples=["finalizepsbt proof-AB.psbt -o proof.sig", "finalizepsbt proof-ABC.psbt --signers ea34d476,7d5dc65a", "finalizepsbt proof-AB.psbt --variant ful --json"])
 
+    p = sub.add_parser("checksigners", help="exercise every cosigner and every threshold-sized combination from one signed PSBT")
+    p.add_argument("psbt", help="a PSBT carrying every cosigner's partial signature (combine the devices' outputs first)")
+    p.add_argument("--network", choices=sorted(NETWORKS), default=None, help="address network for the report (default: main)")
+    p.add_argument("--engines", default=None, help="comma separated bip322 engines (default: all installed)")
+    p.add_argument("--json", action="store_true", help="JSON report including every combination's proof")
+    p.add_argument("--output", "-o", help="write the report here instead of stdout")
+    p.description = ("Device health check: verify each partial signature on its own, then finalize and verify one proof per "
+                     "threshold-sized combination of cosigners (all three pairs of a 2-of-3). Exit 0 when every signer and "
+                     "every combination is valid.")
+    p.set_defaults(func=cmd_checksigners, examples=["checksigners combined.psbt", "checksigners combined.psbt --json -o signers-2026-09-15.json"])
+
     p = sub.add_parser("verifymessage", help="verify a BIP-322 signature (same argument order as Bitcoin Core's RPC)")
     p.add_argument("address")
     p.add_argument("values", nargs="*", metavar="SIGNATURE MESSAGE", help="the signature string and the message text")
@@ -542,7 +576,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_help_command("bip322", sub, {
         "Wallet": ["wallet", "deriveaddresses", "getaddressinfo"],
         "PSBT": ["createpsbt", "analyzepsbt", "combinepsbt", "finalizepsbt"],
-        "Verification": ["verifymessage"],
+        "Verification": ["verifymessage", "checksigners"],
         "Util": ["lint-message", "engines", "help"],
     })
     return parser
