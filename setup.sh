@@ -45,7 +45,7 @@ else
   "$PIP" install -q --require-hashes -r .venv/requirements.nokernel.lock
 fi
 "$PIP" install -q --no-deps -e .
-"$PIP" install -q pytest ruff
+"$PIP" install -q "pytest==9.1.1" "ruff==0.16.7"   # pinned: CI and local lint must agree
 
 # --- optional: reference implementations for bip322-refcheck ----------------
 if [ "$WITH_REFCHECK" = 1 ]; then

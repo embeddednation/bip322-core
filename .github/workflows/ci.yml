@@ -16,6 +16,14 @@ jobs:
           python-version: "3.12"
       - name: setup (venv, hash-pinned dependencies, editable install)
         run: ./setup.sh --no-tests
+      - name: versions
+        run: |
+          python3 --version
+          .venv/bin/python --version
+          .venv/bin/pip --version
+          .venv/bin/ruff --version
+          .venv/bin/python -m pytest --version
+          .venv/bin/bip322 engines
       - name: lint
         run: .venv/bin/ruff check bip322 bip322audit refcheck tests
       - name: tests (the regtest test skips without the Core binary)
