@@ -21,22 +21,24 @@ Three independent things live here:
 ## Install
 
 ```sh
-python3 -m venv .venv            # on Ubuntu without python3-venv: python3 -m venv --without-pip .venv && curl -sL https://bootstrap.pypa.io/get-pip.py | .venv/bin/python
-.venv/bin/pip install --require-hashes -r requirements.lock   # exact, hash-pinned runtime dependencies
-.venv/bin/pip install --no-deps -e '.[dev]'
-.venv/bin/python -m pytest        # ~160 tests
+git clone git@github.com:embeddednation/bip322.git && cd bip322
+./setup.sh                      # venv, hash-pinned dependencies, editable install, tests
+export PATH="$PWD/.venv/bin:$PATH"
 ```
 
-`requirements.lock` pins embit, btclib and py-bitcoinkernel (plus btclib's two
-dependencies) to the exact versions the test suite and reference checks were
-run against, with sha256 hashes. `docs/DESIGN.md` is the reviewer's map: trust
-boundaries, data flow, the exact rule sets, known divergences between
-implementations, exit codes.
+`setup.sh --with-refcheck` also downloads Bitcoin Core, Bitcoin Knots and Go
+and builds the btcd wrapper for `bip322-refcheck` (about 200 MB, gitignored).
+The script handles a `python3` without `ensurepip` (Debian/Ubuntu) and
+installs without the libbitcoinkernel engine on platforms the pinned wheel is
+not built for.
 
 Dependencies: [embit](https://github.com/diybitcoinhardware/embit) (descriptors, PSBT, keys),
 [btclib](https://btclib.org) (script interpreter with the policy flags BIP-322 lists),
 optionally [py-bitcoinkernel](https://github.com/stickies-v/py-bitcoinkernel) for a
-second, consensus-only pass with Bitcoin Core's own interpreter.
+second, consensus-only pass with Bitcoin Core's own interpreter. `requirements.lock`
+pins them with sha256 hashes to the versions the test suite and reference checks
+were run against. `docs/DESIGN.md` is the reviewer's map: trust boundaries, data
+flow, the exact rule sets, known divergences between implementations, exit codes.
 
 ## Signing with the Coldcards
 
