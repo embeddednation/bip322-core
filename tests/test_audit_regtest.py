@@ -130,7 +130,7 @@ def test_audit_workflow_on_regtest(core, regtest_wallet, signer_expressions, pri
 
     cfg = tmp_path / "w.desc"
     cfg.write_text(regtest_wallet.to_descriptor() + "\n")
-    cli_arg = " ".join(core.cli_argv("watch"))
-    assert audit_cli.main(["--cli", cli_arg, "snapshot", "-w", str(cfg), "--depth", "2", "-o", str(tmp_path / "b2")]) == 0
+    cli_arg = " ".join(core.cli_argv())
+    assert audit_cli.main(["--cli", cli_arg, "--rpcwallet", "watch", "snapshot", "-w", str(cfg), "--depth", "2", "-o", str(tmp_path / "b2")]) == 0
     assert (tmp_path / "b2" / "snapshot.json").exists()
     assert audit_cli.main(["--cli", " ".join(core.cli_argv()), "verify", str(directory), "--txindex", "--scan"]) == 0

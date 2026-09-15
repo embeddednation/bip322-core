@@ -170,18 +170,18 @@ ends with five independent verifiers agreeing. Artifacts land in `examples/out/`
 For "we controlled these coins as of block N", repeatable whenever coins move:
 
 ```sh
-bip322-audit --cli "bitcoin-cli -rpcwallet=watch" snapshot -w wallet.desc --text "Annual audit {date}"
+bip322-audit --rpcwallet watch snapshot -w wallet.desc --text "Annual audit {date}"
 #   -> proof-2026-09-14-912345/: snapshot.json, message.txt, <address>.psbt per funded address
 #   sign every PSBT on two Coldcards, put the results into proof-.../signed/
 bip322-audit finalize proof-2026-09-14-912345           # -> proofs.json (hand this to the auditor)
-bip322-audit --cli "bitcoin-cli" verify proof-2026-09-14-912345 --txindex --report audit-report.json
+bip322-audit verify proof-2026-09-14-912345 --txindex --report audit-report.json
 ```
 
 `snapshot` takes the block six behind the tip (`--depth`) as the stamp *and*
 the snapshot height: the message ends with `block: HEIGHT HASH TIME` taken
 from that block, and only outputs confirmed at that block are listed. Coins
 come from `listunspent` on the node's loaded wallet (the only one, or the one
-named with `-rpcwallet=` in `--cli`) or, when the node has no wallet, from a
+named with `--rpcwallet`) or, when the node has no wallet, from a
 `scantxoutset` of the descriptor (minutes on mainnet; the command says so
 before it starts; `--source` forces either). The template accepts
 `{date}`, `{time}`, `{height}`, `{hash}`, and is checked against Coldcard's

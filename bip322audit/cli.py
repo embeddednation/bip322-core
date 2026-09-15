@@ -24,7 +24,10 @@ DEFAULT_TEMPLATE = "Proof of control {date}"
 
 
 def _cli(args) -> BitcoinCli:
-    return BitcoinCli(args.cli)
+    cli = BitcoinCli(args.cli)
+    if args.rpcwallet:
+        cli.argv.append(f"-rpcwallet={args.rpcwallet}")
+    return cli
 
 
 def _wallet(args) -> Wallet:
@@ -83,12 +86,14 @@ def cmd_verify(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bip322-audit", description=f"Proof of control of a wallet's coins at a point in time: BIP-322 proofs plus on-chain checks through bitcoin-cli ({SPEC}).")
     parser.add_argument("--version", action="version", version=f"{TOOL} ({SPEC})")
-    parser.add_argument("--cli", default="bitcoin-cli", metavar="CMD", help='how to reach the node, e.g. "bitcoin-cli -signet -rpcwallet=watch" (default: bitcoin-cli)')
+    parser.add_argument("--cli", default="bitcoin-cli", metavar="CMD", help='how to reach the node, e.g. "bitcoin-cli -signet" or "bitcoin-cli -rpcconnect=10.0.0.5" (default: bitcoin-cli)')
+    parser.add_argument("--rpcwallet", metavar="NAME", help="the node wallet to use (required when several are loaded); passed to bitcoin-cli as -rpcwallet=NAME")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("stamp", help="print the block stamp line for a message", description="Print `block: HEIGHT HASH TIME` for the block DEPTH blocks behind the node's tip.")
     p.add_argument("--depth", type=int, default=DEFAULT_DEPTH, help=f"blocks behind the tip (default {DEFAULT_DEPTH})")
     p.set_defaults(func=cmd_stamp, examples=["stamp", "--cli 'bitcoin-cli -signet' stamp --depth 3"])
+    p.description += " No wallet is needed."
 
     p = sub.add_parser("snapshot", help="stamp, funded addresses, message and one PSBT per address into a directory",
                        description=("Take the snapshot: choose the stamp block (tip - DEPTH), find the wallet's coins confirmed at that block "
@@ -107,7 +112,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--allow-non-coldcard", action="store_true", help="do not insist on Coldcard's message rules")
     p.add_argument("--output", "-o", metavar="DIR", help="bundle directory (default proof-<date>-<height>)")
     p.add_argument("--force", action="store_true", help="write into a non-empty directory")
-    p.set_defaults(func=cmd_snapshot, examples=["--cli 'bitcoin-cli -rpcwallet=watch' snapshot -w wallet.desc --text 'Annual audit {date}'",
+    p.set_defaults(func=cmd_snapshot, examples=["--rpcwallet watch snapshot -w wallet.desc --text 'Annual audit {date}'",
+                                                "--cli 'bitcoin-cli -signet' --rpcwallet watch snapshot -w wallet.desc",
                                                 "snapshot -w wallet.desc --source scantxoutset -o audit-2026"])
 
     p = sub.add_parser("finalize", help="combine and finalize the signed PSBTs of a bundle into proofs.json",

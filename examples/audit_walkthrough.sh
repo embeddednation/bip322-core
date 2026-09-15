@@ -42,7 +42,7 @@ $CLI -rpcwallet=miner generatetoaddress 7 "$MINE" >/dev/null
 $CLI -rpcwallet=watch listunspent 1 | .venv/bin/python -c "import json,sys;[print(u['address'], u['amount'], 'conf', u['confirmations']) for u in json.load(sys.stdin)]"
 
 step "3. snapshot: stamp block, coins as of that block, message, one PSBT per funded address"
-run $AUDIT --cli "$CLI -rpcwallet=watch" snapshot -w "$WORK/wallet.desc" --text "Annual audit {date}" -o "$WORK/bundle"
+run $AUDIT --cli "$CLI" --rpcwallet watch snapshot -w "$WORK/wallet.desc" --text "Annual audit {date}" -o "$WORK/bundle"
 cat "$WORK/bundle/message.txt"; echo; ls "$WORK/bundle"
 
 step "4. cosigners A and C sign every PSBT (Coldcards in real life), results go to bundle/signed/"
