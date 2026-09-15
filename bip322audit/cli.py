@@ -7,8 +7,6 @@ import json
 import sys
 from pathlib import Path
 
-from embit.networks import NETWORKS
-
 from bip322._version import SPEC
 from bip322.cli import CLIError, _emit, add_help_command
 from bip322.core import BIP322Error
@@ -17,7 +15,7 @@ from bip322.wallet import Wallet, wallet_from_file
 from . import TOOL
 from .audit import AuditError, finalize_bundle, format_report, load_proofs, verify_proofs
 from .rpc import BitcoinCli, RpcError
-from .snapshot import DEFAULT_DEPTH, take_snapshot, write_bundle
+from .snapshot import DEFAULT_DEPTH, check_wallet_against_node, take_snapshot, wallet_from_node, write_bundle
 from .stamp import fetch_stamp
 
 DEFAULT_TEMPLATE = "Proof of control {date}"
@@ -25,17 +23,21 @@ DEFAULT_TEMPLATE = "Proof of control {date}"
 
 def _cli(args) -> BitcoinCli:
     cli = BitcoinCli(args.cli)
-    if args.rpcwallet:
-        cli.argv.append(f"-rpcwallet={args.rpcwallet}")
+    if args.wallet:
+        cli.argv.append(f"-rpcwallet={args.wallet}")
     return cli
 
 
-def _wallet(args) -> Wallet:
+def _wallet(args, cli: BitcoinCli) -> Wallet:
+    """The wallet: from --descriptor (file or text, cross-checked against the node) or from the node wallet itself."""
+    chain = cli.chain()
+    network = {"main": "main", "test": "test", "regtest": "regtest", "signet": "signet"}.get(chain, chain)
     if args.descriptor:
-        return Wallet.from_descriptor(args.descriptor, network=args.network)
-    if args.wallet:
-        return wallet_from_file(args.wallet, network=args.network)
-    raise CLIError("provide --wallet FILE or --descriptor")
+        text = args.descriptor
+        wallet = wallet_from_file(text, network=network) if Path(text).is_file() else Wallet.from_descriptor(text, network=network)
+        check_wallet_against_node(cli, wallet)
+        return wallet
+    return wallet_from_node(cli, chain)
 
 
 def cmd_stamp(args) -> int:
@@ -44,9 +46,10 @@ def cmd_stamp(args) -> int:
 
 
 def cmd_snapshot(args) -> int:
-    wallet = _wallet(args)
+    cli = _cli(args)
+    wallet = _wallet(args, cli)
     snapshot, psbts = take_snapshot(
-        _cli(args), wallet, args.text, depth=args.depth, source=args.source,
+        cli, wallet, args.text, depth=args.depth, source=args.source,
         coldcard_strict=not args.allow_non_coldcard, max_index=args.max_index, utxo_mode=args.utxo,
         progress=lambda line: print(line, file=sys.stderr),
     )
@@ -87,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bip322-audit", description=f"Proof of control of a wallet's coins at a point in time: BIP-322 proofs plus on-chain checks through bitcoin-cli ({SPEC}).")
     parser.add_argument("--version", action="version", version=f"{TOOL} ({SPEC})")
     parser.add_argument("--cli", default="bitcoin-cli", metavar="CMD", help='how to reach the node, e.g. "bitcoin-cli -signet" or "bitcoin-cli -rpcconnect=10.0.0.5" (default: bitcoin-cli)')
-    parser.add_argument("--rpcwallet", metavar="NAME", help="the node wallet to use (required when several are loaded); passed to bitcoin-cli as -rpcwallet=NAME")
+    parser.add_argument("--wallet", "-w", metavar="NAME", help="the node wallet (bitcoin-cli -rpcwallet=NAME); required when several are loaded. Its descriptor is read from the node.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("stamp", help="print the block stamp line for a message", description="Print `block: HEIGHT HASH TIME` for the block DEPTH blocks behind the node's tip.")
@@ -96,14 +99,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.description += " No wallet is needed."
 
     p = sub.add_parser("snapshot", help="stamp, funded addresses, message and one PSBT per address into a directory",
-                       description=("Take the snapshot: choose the stamp block (tip - DEPTH), find the wallet's coins confirmed at that block "
-                                    "(listunspent on the -rpcwallet, or a scantxoutset of the descriptors), compose the message from the template "
+                       description=("Take the snapshot: read the wallet descriptor from the node wallet (or --descriptor), choose the stamp block "
+                                    "(tip - DEPTH), find the wallet's coins confirmed at that block "
+                                    "(listunspent on the node wallet, or a scantxoutset of the descriptor), compose the message from the template "
                                     "plus the stamp line, and write snapshot.json, message.txt and <address>.psbt for every funded address. "
                                     "Sign the PSBTs on the cosigners' devices and put the results in <dir>/signed/."))
-    g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--wallet", "-w", metavar="FILE", help="file holding the wallet descriptor")
-    g.add_argument("--descriptor", "-d", metavar="DESC", help="descriptor text")
-    p.add_argument("--network", choices=sorted(NETWORKS), default=None, help="address network (default: from the key encoding)")
+    p.add_argument("--descriptor", "-d", metavar="FILE|DESC", help="use this descriptor (a file or the text) instead of the node wallet's own; it must be one of the wallet's descriptors")
     p.add_argument("--text", default=DEFAULT_TEMPLATE, help="message template; {date} {time} {height} {hash} are filled from the stamp block (default: '%(default)s')")
     p.add_argument("--depth", type=int, default=DEFAULT_DEPTH, help=f"stamp/snapshot block is this many blocks behind the tip (default {DEFAULT_DEPTH})")
     p.add_argument("--source", choices=["auto", "listunspent", "scantxoutset"], default="auto", help="where to find the coins (auto: the node's wallet via listunspent when one is loaded, else a scantxoutset of the descriptor)")
@@ -112,9 +113,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--allow-non-coldcard", action="store_true", help="do not insist on Coldcard's message rules")
     p.add_argument("--output", "-o", metavar="DIR", help="bundle directory (default proof-<date>-<height>)")
     p.add_argument("--force", action="store_true", help="write into a non-empty directory")
-    p.set_defaults(func=cmd_snapshot, examples=["--rpcwallet watch snapshot -w wallet.desc --text 'Annual audit {date}'",
-                                                "--cli 'bitcoin-cli -signet' --rpcwallet watch snapshot -w wallet.desc",
-                                                "snapshot -w wallet.desc --source scantxoutset -o audit-2026"])
+    p.set_defaults(func=cmd_snapshot, examples=["-w treasury snapshot --text 'Annual audit {date}'",
+                                                "--cli 'bitcoin-cli -signet' -w watch snapshot",
+                                                "snapshot -d wallet.desc --source scantxoutset -o audit-2026"])
 
     p = sub.add_parser("finalize", help="combine and finalize the signed PSBTs of a bundle into proofs.json",
                        description="Read every PSBT in <dir> and <dir>/signed/, group them by address, combine, finalize, self-verify, and write proofs.json.")

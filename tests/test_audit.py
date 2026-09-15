@@ -45,6 +45,16 @@ class FakeCli(BitcoinCli):
             if "-rpcwallet=watch" not in self.argv:
                 raise RpcError("Wallet file not specified (must request wallet RPC through /wallet/<filename> uri-path)")
             return {"walletname": "watch"}
+        if method == "listdescriptors":
+            if "-rpcwallet=watch" not in self.argv:
+                raise RpcError("Wallet file not specified")
+            from embit.descriptor.checksum import add_checksum
+
+            base = self.wallet.to_descriptor(checksum=False)
+            return {"wallet_name": "watch", "descriptors": [
+                {"desc": add_checksum(base.replace("/<0;1>/*", "/0/*")), "active": True, "internal": False, "range": [0, 999]},
+                {"desc": add_checksum(base.replace("/<0;1>/*", "/1/*")), "active": True, "internal": True, "range": [0, 999]},
+            ]}
         if method == "getblockhash":
             return fake_hash(int(params[0]))
         if method == "getblockheader":
@@ -217,10 +227,15 @@ def test_cli_end_to_end_with_fake_node(tmp_path, wallet, funded, signer_expressi
     out_dir = tmp_path / "bundle"
     assert audit_cli.main(["stamp", "--depth", "6"]) == 0
     assert capsys.readouterr().out.strip() == fetch_stamp(fake, 6).line()
-    assert audit_cli.main(["snapshot", "-w", str(cfg), "--text", "Audit {date}", "-o", str(out_dir)]) == 0
+    assert audit_cli.main(["-w", "watch", "snapshot", "--text", "Audit {date}", "-o", str(out_dir)]) == 0  # descriptor from the node
     out, err = capsys.readouterr()
     assert out.strip() == str(out_dir) and json.loads(err)["total_sat"] == 85_000_000
-    assert audit_cli.main(["snapshot", "-w", str(cfg), "-o", str(out_dir)]) == 2  # not empty
+    assert audit_cli.main(["-w", "watch", "snapshot", "-d", str(cfg), "-o", str(out_dir)]) == 2  # not empty
+    capsys.readouterr()
+    other = tmp_path / "other.desc"
+    other.write_text(wallet.to_descriptor().replace("sortedmulti(2,", "sortedmulti(1,") .split("#")[0] + "\n")
+    assert audit_cli.main(["-w", "watch", "snapshot", "-d", str(other), "-o", str(tmp_path / "x")]) == 2  # not the node's descriptor
+    assert "not one of the node wallet" in capsys.readouterr().err
     capsys.readouterr()
     for address in funded:
         psbt = parse_psbt((out_dir / f"{address}.psbt").read_text())
@@ -287,3 +302,14 @@ def test_verify_scan_reports_unproven_coins(tmp_path, wallet, funded, signer_exp
     text = format_report(report)
     assert "not covered by any proof" in text and wallet.derive(3).address in text
     assert report["ok"]  # unproven coins are reported, not a verdict about the proofs given
+
+
+def test_wallet_from_node(wallet, funded):
+    from bip322audit.snapshot import check_wallet_against_node, wallet_from_node
+
+    cli = FakeCli(wallet, funded)
+    node_wallet = wallet_from_node(cli)
+    assert node_wallet.to_descriptor() == wallet.to_descriptor() and node_wallet.network == "main"
+    check_wallet_against_node(cli, wallet)
+    with pytest.raises(RpcError, match="pass --descriptor"):
+        wallet_from_node(FakeCli(wallet, funded, rpcwallet=False))

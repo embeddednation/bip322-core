@@ -128,9 +128,11 @@ def test_audit_workflow_on_regtest(core, regtest_wallet, signer_expressions, pri
     # ---- the CLI, driving the same node through bitcoin-cli ------------------- #
     import bip322audit.cli as audit_cli
 
+    cli_arg = " ".join(core.cli_argv())
+    assert audit_cli.main(["--cli", cli_arg, "-w", "watch", "snapshot", "--depth", "2", "-o", str(tmp_path / "b2")]) == 0
+    assert json.loads((tmp_path / "b2" / "snapshot.json").read_text())["wallet"]["descriptor"] == regtest_wallet.to_descriptor()
     cfg = tmp_path / "w.desc"
     cfg.write_text(regtest_wallet.to_descriptor() + "\n")
-    cli_arg = " ".join(core.cli_argv())
-    assert audit_cli.main(["--cli", cli_arg, "--rpcwallet", "watch", "snapshot", "-w", str(cfg), "--depth", "2", "-o", str(tmp_path / "b2")]) == 0
+    assert audit_cli.main(["--cli", cli_arg, "-w", "watch", "snapshot", "-d", str(cfg), "--depth", "2", "-o", str(tmp_path / "b3")]) == 0
     assert (tmp_path / "b2" / "snapshot.json").exists()
     assert audit_cli.main(["--cli", " ".join(core.cli_argv()), "verify", str(directory), "--txindex", "--scan"]) == 0

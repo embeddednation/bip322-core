@@ -141,6 +141,52 @@ def _sorted(by_address: dict[str, AddressCoins]) -> list[AddressCoins]:
 CHAIN_BY_NETWORK = {"main": "main", "test": "test", "regtest": "regtest", "signet": "signet"}
 
 
+def _multipath(desc: str) -> str:
+    """``.../0/*`` or ``.../1/*`` descriptors as one ``<0;1>`` descriptor (checksum dropped)."""
+    body = desc.split("#")[0]
+    return body.replace("/0/*", "/<0;1>/*").replace("/1/*", "/<0;1>/*")
+
+
+def wallet_from_node(cli: BitcoinCli, chain: str | None = None) -> Wallet:
+    """The wallet behind the node's loaded wallet, from ``listdescriptors``.
+
+    Works for descriptor wallets holding one supported descriptor family
+    (``wsh(multi/sortedmulti(...))`` or ``wpkh(...)``, receive and change);
+    anything else needs ``--descriptor``.
+    """
+    chain = chain or cli.chain()
+    try:
+        listing = cli.call("listdescriptors")
+    except RpcError as exc:
+        raise RpcError(f"cannot read the node wallet's descriptors ({exc}); pass --descriptor") from exc
+    families: dict[str, Wallet] = {}
+    unsupported = []
+    for entry in listing.get("descriptors", []):
+        text = _multipath(entry["desc"])
+        try:
+            wallet = Wallet.from_descriptor(text, network=CHAIN_BY_NETWORK.get(chain, chain))
+        except WalletError:
+            unsupported.append(entry["desc"].split("#")[0][:40] + "...")
+            continue
+        families.setdefault(wallet.to_descriptor(), wallet)
+    if len(families) == 1:
+        return next(iter(families.values()))
+    if not families:
+        raise RpcError("the node wallet has no wsh(multi/sortedmulti) or wpkh descriptor" + (f" (found: {', '.join(unsupported)})" if unsupported else "") + "; pass --descriptor")
+    raise RpcError("the node wallet holds several descriptor families; pass --descriptor to choose: " + " | ".join(families))
+
+
+def check_wallet_against_node(cli: BitcoinCli, wallet: Wallet) -> None:
+    """Refuse a --descriptor that the node wallet does not contain."""
+    try:
+        listing = cli.call("listdescriptors")
+    except RpcError:
+        return  # legacy wallet or no descriptor support: nothing to compare with
+    node_descs = {_multipath(e["desc"]) for e in listing.get("descriptors", [])}
+    if wallet.to_descriptor(checksum=False) not in node_descs:
+        raise RpcError("the given descriptor is not one of the node wallet's descriptors (listdescriptors); wrong wallet or wrong file?")
+
+
 @dataclass
 class Snapshot:
     created_utc: str
