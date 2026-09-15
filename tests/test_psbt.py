@@ -340,6 +340,12 @@ def test_checksigners(wallet, signer_expressions, masters, tmp_path, capsys):
     psbt = signed_psbt(wallet, signer_expressions, MESSAGE, index=1)
     report = check_signers(psbt, engines=("btclib",))
     assert report["ok"] and report["summary"] == {"signers_valid": "3/3", "combinations_valid": "3/3"}
+    derived = wallet.derive(1)
+    sc = report["script"]
+    assert sc["type"] == "p2wsh" and sc["matches_input"] and sc["address"] == derived.address
+    assert sc["scriptPubKey"] == derived.script_pubkey.hex() and sc["witness_script_hex"] == derived.witness_script.hex()
+    assert sc["asm"].startswith("OP_2 ") and sc["asm"].endswith("OP_3 OP_CHECKMULTISIG")
+    assert all([w["role"] for w in c["witness"]][1:3] == ["ECDSA signature (DER + sighash byte)"] * 2 for c in report["combinations"])
     assert len({c["signature"] for c in report["combinations"]}) == 3 and all(c["state"] == "valid" for c in report["combinations"])
     assert {tuple(c["signers"]) for c in report["combinations"]} == {tuple(sorted(p)) if False else tuple(p) for p in itertools.combinations([s["fingerprint"] for s in report["signers"]], 2)}
     # the untouched PSBT is still unfinalized with its three partial signatures
@@ -360,6 +366,16 @@ def test_checksigners(wallet, signer_expressions, masters, tmp_path, capsys):
     assert main(["checksigners", str(path)]) == 0
     out = capsys.readouterr().out
     assert "RESULT: OK" in out and out.count("VALID") == 3 and "signers valid: 3/3" in out
+    assert "matches the input" in out and "OP_CHECKMULTISIG" in out and "witness: #1 ECDSA signature, #2 ECDSA signature" in out
+    # the devices' separate files, combined by the command itself
+    parts = []
+    for i, signer in enumerate(signer_expressions):
+        part = signed_psbt(wallet, [signer], MESSAGE, index=1)
+        p = tmp_path / f"part{i}.psbt"
+        p.write_text(part.to_string())
+        parts.append(str(p))
+    assert main(["checksigners", *parts]) == 0
+    assert "combinations valid: 3/3" in capsys.readouterr().out
     path.write_text(two.to_string())
     assert main(["checksigners", str(path), "--json"]) == 1
     assert __import__("json").loads(capsys.readouterr().out)["summary"]["combinations_valid"] == "1/3"
@@ -373,3 +389,4 @@ def test_checksigners_p2wpkh(wpkh):
     assert sign_psbt(psbt, signer) == 1
     report = check_signers(psbt, engines=("btclib",))
     assert report["ok"] and report["summary"] == {"signers_valid": "1/1", "combinations_valid": "1/1"}
+    assert report["script"]["type"] == "p2wpkh" and report["script"]["matches_input"] and report["script"]["address"] == wallet.derive(2).address

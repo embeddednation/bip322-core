@@ -26,6 +26,8 @@ from .core import (
     build_to_sign,
     build_to_spend,
     decode_signature,
+    describe_witness,
+    disassemble,
     is_native_segwit,
     is_op_return_output,
     parse_transaction,
@@ -302,6 +304,7 @@ def check_signers(psbt: BIP322PSBT, *, engines: Sequence[str] = ("btclib",), net
         "address": info.address,
         "message_utf8": (info.message or b"").decode("utf-8", errors="replace"),
         "threshold": info.threshold,
+        "script": _script_chain(psbt, network),
         "signers": signer_report(psbt, 0),
         "combinations": [],
     }
@@ -319,7 +322,9 @@ def check_signers(psbt: BIP322PSBT, *, engines: Sequence[str] = ("btclib",), net
                 finalize_psbt(trial, signers=selectors)
                 signature = signature_from_psbt(trial)
                 verdict = verify_message(info.address, signature, info.message, engines=engines)
-                row.update({"state": verdict.state.value, "reason": verdict.reason, "signature": signature})
+                witness = describe_witness(trial.inputs[0].final_scriptwitness.items)
+                row.update({"state": verdict.state.value, "reason": verdict.reason, "signature": signature,
+                            "witness": [{k: v for k, v in w.items() if k in ("index", "role", "sighash", "bytes")} for w in witness]})
             except FinalizeError as exc:
                 row["reason"] = str(exc)
             report["combinations"].append(row)
@@ -328,8 +333,10 @@ def check_signers(psbt: BIP322PSBT, *, engines: Sequence[str] = ("btclib",), net
         "signers_valid": f"{len(valid_signers)}/{len(report['signers'])}",
         "combinations_valid": f"{sum(c['state'] == 'valid' for c in report['combinations'])}/{expected}",
     }
+    script_ok = report["script"] is None or report["script"].get("matches_input", True)
     report["ok"] = bool(
         not structural
+        and script_ok
         and report["signers"]
         and len(valid_signers) == len(report["signers"])
         and expected > 0
@@ -337,6 +344,40 @@ def check_signers(psbt: BIP322PSBT, *, engines: Sequence[str] = ("btclib",), net
         and len(report["combinations"]) == expected
     )
     return report
+
+
+def _script_chain(psbt: BIP322PSBT, network: str) -> dict | None:
+    """The script behind input 0 and how it maps back to the scriptPubKey and address."""
+    import hashlib
+
+    from embit.hashes import hash160
+    from embit.networks import NETWORKS
+    from embit.script import Script
+
+    inp = psbt.inputs[0]
+    spk = inp.script_pubkey.data if inp.script_pubkey is not None else None
+    if spk is None:
+        return None
+    if inp.witness_script is not None:
+        script = inp.witness_script.data
+        digest = hashlib.sha256(script).digest()
+        derived_spk = b"\x00\x20" + digest
+        chain = {"type": "p2wsh", "witness_script_hex": script.hex(), "asm": disassemble(script), "sha256": digest.hex()}
+    elif Script(spk).script_type() == "p2wpkh":
+        keys = list(inp.bip32_derivations) or list(inp.partial_sigs)
+        if not keys:
+            return {"type": "p2wpkh", "note": "no public key in the PSBT to rebuild the scriptPubKey from"}
+        pub = keys[0].sec()
+        derived_spk = b"\x00\x14" + hash160(pub)
+        chain = {"type": "p2wpkh", "pubkey": pub.hex(), "hash160": hash160(pub).hex()}
+    else:
+        return {"type": Script(spk).script_type() or "unknown", "note": "not a script this tool rebuilds"}
+    chain.update({
+        "scriptPubKey": derived_spk.hex(),
+        "address": Script(derived_spk).address(NETWORKS[network]),
+        "matches_input": derived_spk == spk,
+    })
+    return chain
 
 
 def _n_choose_k(n: int, k: int) -> int:
