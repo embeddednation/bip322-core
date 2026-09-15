@@ -293,6 +293,11 @@ def test_cli_decodesignature(wallet, signer_expressions, capsys):
     assert out["witness"][1]["sighash"] == 1 and out["witness"][3]["role"] == "witness script"
     asm = out["witness"][3]["asm"]
     assert asm.startswith("OP_2 ") and asm.endswith(" OP_3 OP_CHECKMULTISIG") and all(pk.hex() in asm for pk in derived.pubkeys)
+    import hashlib
+
+    script = out["witness"][3]
+    assert script["sha256"] == hashlib.sha256(derived.witness_script).hexdigest()
+    assert script["p2wsh_scriptPubKey"] == derived.script_pubkey.hex() and script["p2wsh_address"] == derived.address
     assert disassemble(b"\x76\xa9\x14" + b"\x11" * 20 + b"\x88\xac") == "OP_DUP OP_HASH160 " + "11" * 20 + " OP_EQUALVERIFY OP_CHECKSIG"
     assert main(["decodesignature", signature_from_psbt(psbt, "ful")]) == 0
     out = json.loads(capsys.readouterr().out)

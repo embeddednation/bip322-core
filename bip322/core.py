@@ -247,6 +247,9 @@ def describe_witness(items: Sequence[bytes]) -> list[dict]:
         elif index == len(items) - 1 and len(item) > 33:
             entry["role"] = "witness script"
             entry["asm"] = disassemble(item)
+            digest = hashlib.sha256(item).digest()
+            entry["sha256"] = digest.hex()
+            entry["p2wsh_scriptPubKey"] = (b"\x00\x20" + digest).hex()
         else:
             entry["role"] = "data"
         described.append(entry)

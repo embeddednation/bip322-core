@@ -440,8 +440,18 @@ def cmd_decodesignature(args) -> int:
     text = sys.stdin.read() if args.signature == "-" else args.signature
     decoded = decode_signature(text)
     out: dict = {"variant": decoded.variant, "prefixed": decoded.prefixed, "payload_bytes": len(decoded.payload)}
+    network = NETWORKS[_network(args) or "main"]
+
+    def with_address(elements: list[dict]) -> list[dict]:
+        from embit.script import Script
+
+        for e in elements:
+            if "p2wsh_scriptPubKey" in e:
+                e["p2wsh_address"] = Script(bytes.fromhex(e["p2wsh_scriptPubKey"])).address(network)
+        return elements
+
     if decoded.variant == PREFIX_SIMPLE:
-        out["witness"] = describe_witness(parse_witness(decoded.payload))
+        out["witness"] = with_address(describe_witness(parse_witness(decoded.payload)))
         out["note"] = "the simple variant is the witness stack of to_sign input 0; to_sign itself is implied (version 0, locktime 0, sequence 0)"
     elif decoded.variant == PREFIX_FULL:
         tx = parse_transaction(decoded.payload)
@@ -451,7 +461,7 @@ def cmd_decodesignature(args) -> int:
             "locktime": tx.locktime,
             "inputs": [
                 {"txid": vin.txid.hex(), "vout": vin.vout, "sequence": vin.sequence,
-                 "scriptSig": vin.script_sig.data.hex(), "witness": describe_witness(vin.witness.items)}
+                 "scriptSig": vin.script_sig.data.hex(), "witness": with_address(describe_witness(vin.witness.items))}
                 for vin in tx.vin
             ],
             "outputs": [{"value": o.value, "scriptPubKey": o.script_pubkey.data.hex()} for o in tx.vout],
@@ -462,7 +472,7 @@ def cmd_decodesignature(args) -> int:
         out["psbt"] = {
             "inputs": [
                 {"txid": inp.txid.hex(), "vout": inp.vout, "finalized": bool(inp.final_scriptwitness) or bool(inp.final_scriptsig),
-                 "witness": describe_witness(inp.final_scriptwitness.items) if inp.final_scriptwitness else []}
+                 "witness": with_address(describe_witness(inp.final_scriptwitness.items)) if inp.final_scriptwitness else []}
                 for inp in psbt.inputs
             ],
             "outputs": [{"value": o.value, "scriptPubKey": o.script_pubkey.data.hex()} for o in tx.vout],
@@ -616,6 +626,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("decodesignature", help="open a proof string into its parts (witness stack, to_sign or PSBT)")
     p.add_argument("signature", help="an smp/ful/pof proof string, or - to read it from stdin")
+    p.add_argument("--network", choices=sorted(NETWORKS), default=None, help="network for the address a witness script commits to (default: main)")
     p.add_argument("--output", "-o", help="write the JSON here instead of stdout")
     p.description = ("Decode a BIP-322 signature: for smp the witness stack (each element labelled: dummy, signatures with their "
                      "sighash byte, the witness script disassembled), for ful the whole to_sign transaction, for pof the finalized PSBT. "
