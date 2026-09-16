@@ -3,9 +3,9 @@ import itertools
 import pytest
 from embit.finalizer import finalize_psbt as embit_finalize
 
-from bip322.core import PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE, build_to_spend
-from bip322.dev.signing import sign_psbt
-from bip322.psbt import (
+from bip322core.core import PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE, build_to_spend
+from bip322core.dev.signing import sign_psbt
+from bip322core.psbt import (
     FinalizeError,
     choose_variant,
     combine_psbts,
@@ -16,7 +16,7 @@ from bip322.psbt import (
     parse_psbt,
     signature_from_psbt,
 )
-from bip322.verify import State, verify_message
+from bip322core.verify import State, verify_message
 from tests.helpers import finalized_psbt, signed_psbt
 
 MESSAGE = b"Proof that the 2-of-3 quorum controls this address"
@@ -162,7 +162,7 @@ def test_not_enough_signatures(wallet, signer_expressions):
 
 
 def test_foreign_key_adds_nothing(wallet):
-    from bip322.dev.testing import key_expression, master_key
+    from bip322core.dev.testing import key_expression, master_key
 
     psbt = create_psbt(wallet.derive(0), MESSAGE)
     assert sign_psbt(psbt, key_expression(master_key("Z"), private=True)) == 0
@@ -217,8 +217,8 @@ def test_tampered_partial_signature_is_rejected_at_finalize(wallet, signer_expre
 
 @pytest.fixture(scope="module")
 def wpkh(masters):
-    from bip322.dev.testing import ORIGIN_PATH  # noqa: F401
-    from bip322.wallet import Wallet
+    from bip322core.dev.testing import ORIGIN_PATH  # noqa: F401
+    from bip322core.wallet import Wallet
 
     master = masters[1]
     account = master.derive("m/84h/0h/0h")
@@ -255,7 +255,7 @@ def test_p2wpkh_reproduces_official_vector_signatures():
     from embit import ec
     from embit.script import address_to_scriptpubkey
 
-    from bip322.wallet import DerivedAddress
+    from bip322core.wallet import DerivedAddress
     from tests.conftest import load_vectors
 
     vectors = [v for v in load_vectors("basic-test-vectors.json")["simple"] if v["type"] == "p2wpkh"]
@@ -272,7 +272,7 @@ def test_p2wpkh_reproduces_official_vector_signatures():
 
 
 def test_signer_report_and_signer_selection(wallet, signer_expressions, masters):
-    from bip322.psbt import resolve_signers, signer_report
+    from bip322core.psbt import resolve_signers, signer_report
 
     psbt = signed_psbt(wallet, signer_expressions, MESSAGE, index=1)  # all three signed
     report = signer_report(psbt)
@@ -316,7 +316,7 @@ def test_signer_report_and_signer_selection(wallet, signer_expressions, masters)
 
 
 def test_cli_finalize_signers(tmp_path, wallet, signer_expressions, masters, capsys):
-    from bip322.cli import main
+    from bip322core.cli import main
 
     psbt = signed_psbt(wallet, signer_expressions, MESSAGE, index=1)
     path = tmp_path / "abc.psbt"
@@ -334,8 +334,8 @@ def test_cli_finalize_signers(tmp_path, wallet, signer_expressions, masters, cap
 
 
 def test_checksigners(wallet, signer_expressions, masters, tmp_path, capsys):
-    from bip322.cli import main
-    from bip322.verify import check_signers
+    from bip322core.cli import main
+    from bip322core.verify import check_signers
 
     psbt = signed_psbt(wallet, signer_expressions, MESSAGE, index=1)
     report = check_signers(psbt, engines=("btclib",))
@@ -382,7 +382,7 @@ def test_checksigners(wallet, signer_expressions, masters, tmp_path, capsys):
 
 
 def test_checksigners_p2wpkh(wpkh):
-    from bip322.verify import check_signers
+    from bip322core.verify import check_signers
 
     wallet, signer = wpkh
     psbt = create_psbt(wallet.derive(2), MESSAGE)

@@ -8,7 +8,7 @@ import pytest
 from embit.script import Script
 from embit.transaction import Transaction, TransactionOutput
 
-from bip322.core import (
+from bip322core.core import (
     SignatureFormatError,
     build_to_sign,
     build_to_spend,
@@ -19,8 +19,8 @@ from bip322.core import (
     parse_witness,
     serialize_witness,
 )
-from bip322.engines import BTCLIB_REQUIRED, EngineError, btclib_run
-from bip322.psbt import (
+from bip322core.engines import BTCLIB_REQUIRED, EngineError, btclib_run
+from bip322core.psbt import (
     BIP322PSBT,
     FinalizeError,
     PSBTBuildError,
@@ -33,8 +33,8 @@ from bip322.psbt import (
     psbt_prevouts,
     signature_from_psbt,
 )
-from bip322.verify import State, verify_message
-from bip322.wallet import Wallet, WalletError
+from bip322core.verify import State, verify_message
+from bip322core.wallet import Wallet, WalletError
 from tests.helpers import der_decode, der_encode, finalized_psbt, signed_psbt
 
 MESSAGE = b"review tests"
@@ -206,7 +206,7 @@ def test_engine_selection_errors(proof, monkeypatch):
     sig = signature_from_psbt(psbt)
     with pytest.raises(EngineError, match="unknown engine"):
         verify_message(derived.address, sig, MESSAGE, engines=("btclib", "nope"))
-    import bip322.engines as engines_module
+    import bip322core.engines as engines_module
 
     monkeypatch.setattr(engines_module, "kernel_available", lambda: False)
     with pytest.raises(EngineError, match="not installed"):
@@ -216,7 +216,7 @@ def test_engine_selection_errors(proof, monkeypatch):
 
 def test_engine_crash_fails_closed(proof, monkeypatch):
     derived, witness, _ = proof
-    import bip322.engines as engines_module
+    import bip322core.engines as engines_module
 
     def boom(*args, **kwargs):
         raise AssertionError("interpreter bug")
@@ -232,7 +232,7 @@ def test_engine_crash_fails_closed(proof, monkeypatch):
 
 
 def test_duplicate_xpub_is_rejected(masters):
-    from bip322.dev.testing import key_expression
+    from bip322core.dev.testing import key_expression
 
     keys = [key_expression(masters[0]), key_expression(masters[1]), key_expression(masters[0])]
     with pytest.raises(WalletError, match="more than once"):
@@ -243,7 +243,7 @@ def test_duplicate_xpub_is_rejected(masters):
 
 
 def test_cli_strict_coldcard_writes_nothing_and_missing_files_are_clean_errors(tmp_path, wallet, capsys):
-    from bip322.cli import main
+    from bip322core.cli import main
 
     cfg = tmp_path / "w.desc"
     cfg.write_text(wallet.to_descriptor() + "\n")
@@ -309,12 +309,12 @@ def test_pof_with_duplicate_inputs_is_invalid(wallet, signer_expressions):
 
 
 def test_verify_report_is_self_contained(proof, kernel_engines):
-    from bip322 import SPEC, __version__
+    from bip322core import SPEC, __version__
 
     derived, _, psbt = proof
     sig = signature_from_psbt(psbt)
     report = verify_message(derived.address, sig, MESSAGE, engines=kernel_engines).to_dict()
-    assert report["tool"] == f"bip322 {__version__}" and report["spec"] == SPEC
+    assert report["tool"] == f"bip322-core {__version__}" and report["spec"] == SPEC
     assert report["message_utf8"] == MESSAGE.decode() and report["message_hex"] == MESSAGE.hex()
     assert report["signature"] == sig and report["address"] == derived.address and report["state"] == "valid"
 
@@ -326,8 +326,8 @@ def test_analyzepsbt_finalized_has_no_signer_warnings(proof):
 
 
 def test_cli_version_and_exit_codes(tmp_path, wallet, signer_expressions, capsys):
-    from bip322 import __version__
-    from bip322.cli import main
+    from bip322core import __version__
+    from bip322core.cli import main
 
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
@@ -341,4 +341,4 @@ def test_cli_version_and_exit_codes(tmp_path, wallet, signer_expressions, capsys
     assert "INCONCLUSIVE" in capsys.readouterr().out
     assert main(["verifymessage", address, "smp!!", MESSAGE.decode(), "--json"]) == 1
     out = json.loads(capsys.readouterr().out)
-    assert out["tool"].startswith("bip322 ") and out["signature"] == "smp!!" and out["state"] == "invalid"
+    assert out["tool"].startswith("bip322-core ") and out["signature"] == "smp!!" and out["state"] == "invalid"

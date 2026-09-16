@@ -1,4 +1,4 @@
 """Tool and specification version, importable without pulling in the package."""
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 SPEC = "BIP-322 v2.0.0 (2026-06-04)"

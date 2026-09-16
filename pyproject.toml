@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bip322"
-version = "0.3.1"
-description = "BIP-322 (simple / full) message signing tooling for P2WSH multisig quorums: PSBT creation, finalization and verification"
+name = "bip322-core"
+version = "0.4.0"
+description = "BIP-322 message signing and verification for descriptor wallets (P2WSH multisig, P2WPKH): PSBTs for hardware signers, finalization, a verifier cross-checked against btcd, Knots, Core and btclib"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -19,13 +19,13 @@ kernel = ["py-bitcoinkernel>=0.1.0a5"]
 dev = ["pytest>=8"]
 
 [project.scripts]
-bip322 = "bip322.cli:main"
-bip322-dev = "bip322.dev.cli:main"
+bip322 = "bip322core.cli:main"
+bip322-dev = "bip322core.dev.cli:main"
 bip322-refcheck = "refcheck.verify_one:main"
 bip322-audit = "bip322audit.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["bip322*", "bip322audit*", "refcheck*"]
+include = ["bip322core*", "bip322audit*", "refcheck*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -10,7 +10,7 @@ verify    The verifier (valid / invalid / inconclusive)
 coldcard  Coldcard-specific message lint
 cli       The ``bip322`` command
 
-``bip322.dev`` (command ``bip322-dev``) holds the scaffolding that does handle
+``bip322core.dev`` (command ``bip322-dev``) holds the scaffolding that does handle
 private keys: dummy cosigner generation, wallet assembly and software signing.
 """
 

@@ -1,8 +1,8 @@
-"""Test-only helpers: signing shortcuts on top of bip322.dev.testing."""
+"""Test-only helpers: signing shortcuts on top of bip322core.dev.testing."""
 
-from bip322.dev.signing import sign_psbt
-from bip322.dev.testing import SIGHASH, der_decode, der_encode, high_s, sign_with_sighash  # noqa: F401 - re-exported
-from bip322.psbt import BIP322PSBT, create_psbt, finalize_psbt
+from bip322core.dev.signing import sign_psbt
+from bip322core.dev.testing import SIGHASH, der_decode, der_encode, high_s, sign_with_sighash  # noqa: F401 - re-exported
+from bip322core.psbt import BIP322PSBT, create_psbt, finalize_psbt
 
 
 def signed_psbt(wallet, signers, message: bytes, index: int = 0, branch: int = 0, **kwargs) -> BIP322PSBT:

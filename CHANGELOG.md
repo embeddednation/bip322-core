@@ -1,22 +1,39 @@
 # Changelog
 
-## 0.3.1 (2026-09-16)
+## 0.4.0 (2026-09-16)
 
-- `bip322-audit finalize`: `proofs.json` names addresses, not a wallet. The
-  descriptor (xpubs), derivation paths, node wallet name and coin source stay
-  in the owner's `snapshot.json`. `verify` no longer has a membership check;
-  `--scan` and the holdings block are gone (`gettxout` already covers every
-  listed output, and the verifier needs no wallet).
-- `bip322-audit snapshot` records each output's creating block hash, so
-  `verify` confirms spent outputs existed at the snapshot on any node, no
-  `-txindex` needed.
+- The import package is now `bip322core` and the distribution `bip322-core`;
+  the PyPI name `bip322` belongs to an unrelated verify-only wrapper of the
+  Rust crate. Commands are unchanged: `bip322`, `bip322-dev`, `bip322-audit`,
+  `bip322-refcheck`. Tool strings in JSON output read `bip322-core <version>`
+  and `bip322-audit <version>`.
+- MIT licence.
+- `bip322-audit`: `proofs.json` names addresses, not a wallet. The descriptor
+  (xpubs), derivation paths, node wallet name and coin source stay in the
+  owner's `snapshot.json`; the `--with-descriptor` flag is gone. `verify` has
+  no membership check; `--scan` and the holdings block are gone (`gettxout`
+  already covers every listed output, and the verifier needs no wallet).
 - `bip322-audit finalize` records, from the node wallet's history (the wallet
   is remembered in `snapshot.json`), the transaction that spent each snapshot
   output since; `verify` uses it to show those outputs were unspent at the
   snapshot (a spend confirmed after the stamp block) and flags a spend at or
-  before it. Re-run `finalize` to refresh; `--offline` skips the node.
-- `verify` summary gains `utxos_shown_unspent_at_snapshot`.
+  before it. Re-run `finalize` to refresh; `--offline` skips the node. The
+  separate `spends` command and `spends.json` are gone.
 - Bundle layout: the PSBTs to sign live in `to_sign/`, signed ones in `signed/`.
+- `verify` ends with an aligned checklist instead of one long line.
+- `bip322core.cli.emit` is public (used by the audit CLI and `bip322-dev`).
+
+## 0.3.1 (2026-09-16)
+
+- `bip322-audit finalize`: `proofs.json` no longer carries the wallet
+  descriptor (xpubs) unless `--with-descriptor` is given.
+- `bip322-audit snapshot` records each output's creating block hash, so
+  `verify` confirms spent outputs existed at the snapshot on any node, no
+  `-txindex` needed.
+- `bip322-audit spends`: the owner records, from the node wallet's history,
+  the transaction that spent each snapshot output since; `verify` reads
+  `spends.json` to show those outputs were unspent at the snapshot.
+- `verify` summary gains `utxos_shown_unspent_at_snapshot`.
 
 ## 0.3.0 (2026-09-15)
 

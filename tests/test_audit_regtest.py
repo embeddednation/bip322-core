@@ -9,14 +9,14 @@ from pathlib import Path
 import pytest
 from embit.networks import NETWORKS
 
-from bip322.dev.signing import sign_psbt
-from bip322.dev.testing import ORIGIN_PATH
-from bip322.psbt import parse_psbt
-from bip322.wallet import Wallet
 from bip322audit.audit import finalize_bundle, format_report, verify_proofs
 from bip322audit.rpc import BitcoinCli
 from bip322audit.snapshot import take_snapshot, write_bundle
 from bip322audit.stamp import parse_stamp
+from bip322core.dev.signing import sign_psbt
+from bip322core.dev.testing import ORIGIN_PATH
+from bip322core.psbt import parse_psbt
+from bip322core.wallet import Wallet
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE_DIR = next(iter(sorted((ROOT / "refcheck" / "bin").glob("bitcoin-31.*"))), None)
@@ -105,15 +105,15 @@ def test_audit_workflow_on_regtest(core, regtest_wallet, signer_expressions, pri
     core_signed = node.call("descriptorprocesspsbt", (directory / files[a0]).read_text().strip(), private_descriptors[:2])
     assert core_signed["complete"]
     ours = parse_psbt((directory / "signed" / Path(files[a0]).name.replace(".psbt", "-part.psbt")).read_text())
-    from bip322.psbt import extract_tx, finalize_psbt
+    from bip322core.psbt import extract_tx, finalize_psbt
 
     finalize_psbt(ours)
     assert extract_tx(ours).serialize().hex() != core_signed["hex"]  # A+C here vs A+B in Core: different quorum, both valid
-    from bip322.core import parse_transaction
-    from bip322.verify import verify_message
+    from bip322core.core import parse_transaction
+    from bip322core.verify import verify_message
 
     core_tx = parse_transaction(bytes.fromhex(core_signed["hex"]))
-    from bip322.core import encode_simple
+    from bip322core.core import encode_simple
 
     assert verify_message(a0, encode_simple(core_tx.vin[0].witness.items), snapshot.message.encode()).ok
 

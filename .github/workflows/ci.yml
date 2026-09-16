@@ -25,7 +25,7 @@ jobs:
           .venv/bin/python -m pytest --version
           .venv/bin/bip322 engines
       - name: lint
-        run: .venv/bin/ruff check bip322 bip322audit refcheck tests
+        run: .venv/bin/ruff check bip322core bip322audit refcheck tests
       - name: tests (the regtest test skips without the Core binary)
         run: .venv/bin/python -m pytest -q
       - name: walkthrough (dummy keys, no node)

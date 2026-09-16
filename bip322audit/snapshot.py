@@ -19,9 +19,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from bip322.coldcard import lint_message_for_coldcard
-from bip322.psbt import create_psbt
-from bip322.wallet import DerivedAddress, Wallet, WalletError
+from bip322core.coldcard import lint_message_for_coldcard
+from bip322core.psbt import create_psbt
+from bip322core.wallet import DerivedAddress, Wallet, WalletError
 
 from . import TOOL
 from .rpc import BitcoinCli, RpcError, btc, to_sat

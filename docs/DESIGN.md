@@ -10,10 +10,10 @@ implementations.
   address") for native-segwit wallets: `wsh(multi/sortedmulti(k, ...))` and
   `wpkh(...)`. Proofs are *not* transactions: `to_spend` has an unspendable
   input, so nothing produced here can move funds.
-* **Private keys never enter `bip322/`.** The `bip322` command only ever sees
+* **Private keys never enter `bip322core/`.** The `bip322` command only ever sees
   public data: a descriptor (xpubs), an address, a message, PSBTs carrying
   public keys and signatures. Signing happens on the hardware devices, or in
-  `bip322/dev/` (`bip322-dev`), which exists for tests and demos.
+  `bip322core/dev/` (`bip322-dev`), which exists for tests and demos.
 * **What a verifier trusts.** The address string, the message bytes and the
   signature string; nothing else. `to_spend` is recomputed from address and
   message, so a proof cannot claim a different message or address than the
@@ -23,7 +23,7 @@ implementations.
 * **Third-party code on the verification path.** The script interpreters
   (btclib, and optionally Bitcoin Core's through libbitcoinkernel), the
   address decoder and transaction/PSBT (de)serializers (embit). The BIP-322
-  framing itself (`bip322/core.py`, `bip322/verify.py`) is this project's
+  framing itself (`bip322core/core.py`, `bip322core/verify.py`) is this project's
   code and is what the official vectors exercise.
 
 ## 2. Data flow
@@ -131,7 +131,7 @@ overrides both, and a test guards it.
 ## 9. The audit tool (`bip322audit/`)
 
 Everything chain-facing lives in a separate package with its own command,
-`bip322-audit`; a test asserts that `bip322/` never imports it, nor
+`bip322-audit`; a test asserts that `bip322core/` never imports it, nor
 `subprocess`, sockets or HTTP. The node is reached only through `bitcoin-cli`,
 so the user's node, chain and credentials are what is trusted and the tool
 holds none.

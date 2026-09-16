@@ -12,9 +12,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from bip322.engines import available_engines
-from bip322.psbt import BIP322PSBT, FinalizeError, combine_psbts, finalize_psbt, parse_psbt, signature_from_psbt
-from bip322.verify import verify_message
+from bip322core.engines import available_engines
+from bip322core.psbt import BIP322PSBT, FinalizeError, combine_psbts, finalize_psbt, parse_psbt, signature_from_psbt
+from bip322core.verify import verify_message
 
 from . import TOOL
 from .rpc import BitcoinCli, RpcError, btc, to_sat

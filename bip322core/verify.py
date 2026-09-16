@@ -2,7 +2,7 @@
 
 The framing (``to_spend`` / ``to_sign``, shape checks, variant rules and the
 SIGHASH_ALL rule) is implemented here; script evaluation is delegated to the
-engines in :mod:`bip322.engines`.
+engines in :mod:`bip322core.engines`.
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ class VerifyResult:
         from ._version import SPEC, __version__
 
         return {
-            "tool": f"bip322 {__version__}",
+            "tool": f"bip322-core {__version__}",
             "spec": SPEC,
             "state": self.state.value,
             "reason": self.reason,

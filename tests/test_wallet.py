@@ -1,6 +1,6 @@
 import pytest
 
-from bip322.wallet import MultisigWallet, WalletError, path_from_str, path_to_str, wallet_from_file
+from bip322core.wallet import MultisigWallet, WalletError, path_from_str, path_to_str, wallet_from_file
 
 
 def test_paths():
@@ -58,7 +58,7 @@ def test_find_address_across_networks(wallet):
 
 
 def test_rejects_unsupported_descriptors(masters):
-    from bip322.dev.testing import key_expression
+    from bip322core.dev.testing import key_expression
 
     keys = ",".join(key_expression(m) for m in masters)
     with pytest.raises(WalletError):
@@ -76,7 +76,7 @@ def test_rejects_unsupported_descriptors(masters):
 def test_wpkh_wallet(masters):
     from embit.hashes import hash160
 
-    from bip322.wallet import Wallet
+    from bip322core.wallet import Wallet
 
     master = masters[0]
     account = master.derive("m/84h/0h/0h").to_public()

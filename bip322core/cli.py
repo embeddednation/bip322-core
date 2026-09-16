@@ -326,7 +326,7 @@ def cmd_inspect(args) -> int:
     psbt = _read_psbt(args.psbt)
     info = inspect_psbt(psbt, network=_network(args) or "main")
     out = {
-        "tool": f"bip322 {__version__}",
+        "tool": f"bip322-core {__version__}",
         "is_bip322": info.is_bip322,
         "problems": info.problems,
         "warnings": info.warnings,
@@ -565,7 +565,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="bip322",
         description=f"BIP-322 message signing: build, finalize and verify proofs ({SPEC}; private-key tooling lives in bip322-dev)",
     )
-    parser.add_argument("--version", action="version", version=f"bip322 {__version__} ({SPEC})")
+    parser.add_argument("--version", action="version", version=f"bip322-core {__version__} ({SPEC})")
     # wallet options are accepted here (before the subcommand) as well as after it
     parser.add_argument(
         "--wallet",

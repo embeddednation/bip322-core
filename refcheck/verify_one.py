@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 
 from embit.script import Script  # noqa: E402
 
-from bip322.core import (  # noqa: E402
+from bip322core.core import (  # noqa: E402
     PREFIX_FULL,
     PREFIX_POF,
     PREFIX_SIMPLE,
@@ -36,8 +36,8 @@ from bip322.core import (  # noqa: E402
     parse_transaction,
     parse_witness,
 )
-from bip322.engines import available_engines  # noqa: E402
-from bip322.verify import script_pubkey_from_address, verify_message  # noqa: E402
+from bip322core.engines import available_engines  # noqa: E402
+from bip322core.verify import script_pubkey_from_address, verify_message  # noqa: E402
 from refcheck.daemons import Daemon, RPCError  # noqa: E402
 from refcheck.run_refcheck import BTCD_BIN, CORE_DIR, KNOTS_DIR, OUT  # noqa: E402
 

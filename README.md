@@ -12,8 +12,8 @@ Three independent things live here:
 
 | Part | What it is |
 |---|---|
-| `bip322/` | The tool: build the BIP-322 PSBT from a wallet descriptor, combine cosigner PSBTs, finalize, encode, verify. Command `bip322`. No private keys pass through it. |
-| `bip322/dev/` | Scaffolding that handles private keys: dummy cosigners, wallet assembly, software signing. Command `bip322-dev`. Not needed with hardware cosigners; kept apart so the audited surface stays small. |
+| `bip322core/` | The tool: build the BIP-322 PSBT from a wallet descriptor, combine cosigner PSBTs, finalize, encode, verify. Command `bip322`; distribution `bip322-core`, import `bip322core`. No private keys pass through it. |
+| `bip322core/dev/` | Scaffolding that handles private keys: dummy cosigners, wallet assembly, software signing. Command `bip322-dev`. Not needed with hardware cosigners; kept apart so the audited surface stays small. |
 | `tests/` | 120 pytest cases: the official BIP-322 vectors, a full 2-of-3 roundtrip for every signer pair, negatives, CLI. |
 | `bip322audit/` | The audit workflow: proof of control of a wallet's coins at a point in time. Stamp block, coins from the node, one PSBT per funded address, finalize, and the auditor's verification (signatures, stamp, every output). Command `bip322-audit`; the only package that talks to a node, through `bitcoin-cli`. |
 | `refcheck/` | Cross-checks against the reference implementations: btcd's `bip322` package, Bitcoin Knots' `verifymessage`, Bitcoin Core 31.1 as signer/finalizer, and btclib. Command `bip322-refcheck` (needs the downloaded binaries). |
@@ -273,7 +273,7 @@ judged by four verifiers, and Bitcoin Core is used as an independent producer:
 
 | Verifier | Origin |
 |---|---|
-| ours | `bip322.verify` with btclib + libbitcoinkernel |
+| ours | `bip322core.verify` with btclib + libbitcoinkernel |
 | btclib | `btclib.bip322` — independent framing and interpreter |
 | btcd | `github.com/btcsuite/btcd/bip322` (PR #2521; the BIP's "complete" reference and vector source) |
 | knots | Bitcoin Knots `verifymessage` — the Bitcoin Core PR #24058 code, Core's interpreter |
@@ -299,7 +299,7 @@ two documented exceptions for Knots:
 
 * embit's stock `PSBT` rebuilds the unsigned transaction with `version or 2`
   and `sequence or 0xffffffff`, which silently corrupts the BIP-322 zeros;
-  `bip322.psbt.BIP322PSBT` overrides both. Do not round-trip these PSBTs
+  `bip322core.psbt.BIP322PSBT` overrides both. Do not round-trip these PSBTs
   through plain `embit.psbt.PSBT`.
 * libbitcoinkernel exposes consensus flags only, so it cannot enforce the
   policy rules BIP-322 requires; it is used as an *additional* check.
@@ -310,17 +310,17 @@ two documented exceptions for Knots:
 ## Layout
 
 ```
-bip322/core.py        message hash, to_spend/to_sign, smp/ful/pof encoding
-bip322/engines.py     btclib + libbitcoinkernel runners and the BIP-322 flag sets
-bip322/wallet.py      descriptor parsing, derivation, address lookup
-bip322/psbt.py        PSBT creation, combine, finalize, extract
-bip322/verify.py      the verifier
-bip322/coldcard.py    Coldcard message lint
-bip322/cli.py         bip322 command
-bip322/dev/signing.py software signing (tests, non-hardware cosigners)
-bip322/dev/keys.py    dummy cosigner generation, wallet assembly from keys
-bip322/dev/cli.py     bip322-dev command (keygen, makewallet, signpsbt)
-bip322/dev/testing.py deterministic test cosigners and tampering helpers (tests and refcheck)
+bip322core/core.py        message hash, to_spend/to_sign, smp/ful/pof encoding
+bip322core/engines.py     btclib + libbitcoinkernel runners and the BIP-322 flag sets
+bip322core/wallet.py      descriptor parsing, derivation, address lookup
+bip322core/psbt.py        PSBT creation, combine, finalize, extract
+bip322core/verify.py      the verifier
+bip322core/coldcard.py    Coldcard message lint
+bip322core/cli.py         bip322 command
+bip322core/dev/signing.py software signing (tests, non-hardware cosigners)
+bip322core/dev/keys.py    dummy cosigner generation, wallet assembly from keys
+bip322core/dev/cli.py     bip322-dev command (keygen, makewallet, signpsbt)
+bip322core/dev/testing.py deterministic test cosigners and tampering helpers (tests and refcheck)
 bip322audit/          bip322-audit: rpc.py (bitcoin-cli), stamp.py, snapshot.py, audit.py, cli.py
 tests/                pytest suite and official vectors
 refcheck/             reference harness (fetch.sh, btcd/, run_refcheck.py)

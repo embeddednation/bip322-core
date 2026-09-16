@@ -4,8 +4,8 @@ import pathlib
 import pytest
 from embit.bip32 import HDKey
 
-from bip322.dev.testing import ORIGIN_PATH, key_expression, master_key  # noqa: F401 - re-exported for tests
-from bip322.wallet import MultisigWallet
+from bip322core.dev.testing import ORIGIN_PATH, key_expression, master_key  # noqa: F401 - re-exported for tests
+from bip322core.wallet import MultisigWallet
 
 VECTORS = pathlib.Path(__file__).parent / "vectors"
 
@@ -37,6 +37,6 @@ def signer_expressions(masters) -> list[str]:
 
 @pytest.fixture(scope="session")
 def kernel_engines() -> tuple[str, ...]:
-    from bip322.engines import kernel_available
+    from bip322core.engines import kernel_available
 
     return ("btclib", "kernel") if kernel_available() else ("btclib",)

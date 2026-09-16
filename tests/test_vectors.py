@@ -2,7 +2,7 @@
 
 import pytest
 
-from bip322.verify import State, verify_message
+from bip322core.verify import State, verify_message
 from tests.conftest import load_vectors
 
 BASIC = load_vectors("basic-test-vectors.json")

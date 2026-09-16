@@ -7,10 +7,10 @@ import json
 import sys
 from pathlib import Path
 
-from bip322._version import SPEC
-from bip322.cli import CLIError, add_help_command, emit
-from bip322.core import BIP322Error
-from bip322.wallet import Wallet, wallet_from_file
+from bip322core._version import SPEC
+from bip322core.cli import CLIError, add_help_command, emit
+from bip322core.core import BIP322Error
+from bip322core.wallet import Wallet, wallet_from_file
 
 from . import TOOL
 from .audit import AuditError, finalize_bundle, format_report, load_proofs, verify_proofs

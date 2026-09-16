@@ -14,11 +14,11 @@ from dataclasses import dataclass, field
 from embit.networks import NETWORKS
 from embit.transaction import SIGHASH
 
-from bip322.core import build_to_sign, build_to_spend, encode_full, encode_simple
-from bip322.dev.signing import sign_psbt
-from bip322.dev.testing import high_s, key_expression, master_key, sign_with_sighash
-from bip322.psbt import BIP322PSBT, create_psbt, finalize_psbt, signature_from_psbt
-from bip322.wallet import MultisigWallet
+from bip322core.core import build_to_sign, build_to_spend, encode_full, encode_simple
+from bip322core.dev.signing import sign_psbt
+from bip322core.dev.testing import high_s, key_expression, master_key, sign_with_sighash
+from bip322core.psbt import BIP322PSBT, create_psbt, finalize_psbt, signature_from_psbt
+from bip322core.wallet import MultisigWallet
 
 MESSAGES = {
     "hello": b"Hello World",
