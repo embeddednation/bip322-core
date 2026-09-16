@@ -289,7 +289,7 @@ def build_parser() -> argparse.ArgumentParser:
         ],
     )
 
-    add_help_command("bip322-audit", sub, {"Workflow": ["stamp", "snapshot", "finalize", "verify", "help"]})
+    add_help_command("bip322-audit", sub, {"Workflow": ["stamp", "snapshot", "finalize", "spends", "verify", "help"]})
     return parser
 
 
