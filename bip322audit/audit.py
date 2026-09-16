@@ -423,6 +423,44 @@ def _scan_now(cli: BitcoinCli, document: dict, wallet: Wallet | None, scan_range
     }
 
 
+def _summary_rows(report: dict) -> list[tuple[str, str]]:
+    """The checklist at the end of the text report: one row per thing verify checks."""
+    s = report["summary"]
+    proofs = report["proofs"]
+    utxos = [u for p in proofs for u in p["utxos"]]
+    online = report.get("node") is not None
+    rows = [("signatures", f"{sum(1 for p in proofs if p['bip322']['state'] == 'valid')}/{len(proofs)} valid")]
+    st = report.get("stamp") or {}
+    if not online:
+        rows.append(("stamp block", "not checked (no node)"))
+    elif s["stamp_ok"]:
+        rows.append(("stamp block", f"ok, {st.get('confirmations', '?')} confirmations"))
+    else:
+        rows.append(("stamp block", f"FAILED ({st.get('error') or 'mismatch'})"))
+    problems = report.get("document_problems", [])
+    rows.append(("document", "consistent" if not problems else f"{len(problems)} problem(s), listed above"))
+    if report.get("wallet_descriptor_shared"):
+        rows.append(("wallet descriptor", "shared: every proven address sits at its stated index"))
+    elif any("unusable" in p for p in problems):
+        rows.append(("wallet descriptor", "shared but unusable, see above"))
+    else:
+        rows.append(("wallet descriptor", "not shared: each proof stands on its own address; --scan looks at those addresses only"))
+    if online:
+        rows.append(
+            (
+                "outputs at snapshot",
+                f"{s['utxos_verified_at_snapshot']} existed, {s['utxos_shown_unspent_at_snapshot']} shown unspent, "
+                f"{s['contradictions']} contradiction" + ("" if s["contradictions"] == 1 else "s"),
+            )
+        )
+        still = sum(1 for u in utxos if u.get("status") == "unspent" and u.get("verified"))
+        spent = sum(1 for u in utxos if str(u.get("status", "")).startswith("spent"))
+        rows.append(("outputs now", f"{still}/{len(utxos)} still unspent" + (f", {spent} spent since the snapshot" if spent else "")))
+    else:
+        rows.append(("outputs", "not checked (no node)"))
+    return rows
+
+
 def format_report(report: dict) -> str:
     lines = []
     node = report.get("node")
@@ -468,16 +506,10 @@ def format_report(report: dict) -> str:
                 lines.append(f"     {a}  {btc(v)} BTC")
     for problem in report.get("document_problems", []):
         lines.append(f"!! document: {problem}")
-    if report.get("wallet_descriptor_shared") is False:
-        lines.append(
-            "note: the wallet descriptor is not shared; address membership not checked and --scan covers the proven addresses only"
-        )
-    s = report["summary"]
-    lines.append(
-        f"proofs valid: {s['proofs_valid']}; stamp ok: {s['stamp_ok']}; document consistent: {s['document_consistent']}; "
-        f"outputs existed at snapshot: {s['utxos_verified_at_snapshot']}; shown unspent at snapshot: {s['utxos_shown_unspent_at_snapshot']}; "
-        f"contradictions: {s['contradictions']}; all still unspent: {s['all_utxos_still_unspent']}"
-    )
+    lines.append("")
+    lines.append("summary")
+    for label, value in _summary_rows(report):
+        lines.append(f"  {label:<20} {value}")
     lines.append("RESULT: " + ("OK" if report["ok"] else "FAILED"))
     return "\n".join(lines)
 

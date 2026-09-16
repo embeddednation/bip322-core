@@ -432,7 +432,7 @@ def test_proofs_omit_the_descriptor_unless_asked(tmp_path, wallet, funded, signe
     assert report["ok"] and not report["document_problems"] and report["wallet_descriptor_shared"] is False
     assert all(p["address_in_wallet"] is None for p in report["proofs"])
     assert report["current_holdings"]["scanned"] == "proven addresses only"
-    assert "descriptor is not shared" in format_report(report)
+    assert "wallet descriptor    not shared" in format_report(report)
     shared = finalize_bundle(directory, with_descriptor=True)
     assert shared["wallet"]["descriptor"] == wallet.to_descriptor() and "descriptor_shared" not in shared["wallet"]
 
