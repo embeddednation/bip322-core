@@ -141,7 +141,7 @@ def cmd_verify(args) -> int:
     document = load_proofs(Path(args.proofs))
     cli = None if args.offline else _cli(args)
     engines = args.engines.split(",") if args.engines else None
-    report = verify_proofs(document, cli, engines=engines, txindex=args.txindex, scan=args.scan)
+    report = verify_proofs(document, cli, engines=engines, txindex=args.txindex)
     if args.report:
         Path(args.report).write_text(json.dumps(report, indent=2, default=str) + "\n")
     _emit(json.dumps(report, indent=2, default=str) if args.json else format_report(report), args.output)
@@ -271,7 +271,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also use -txindex on the node for outputs whose creating block is not recorded in the snapshot",
     )
-    p.add_argument("--scan", action="store_true", help="also scantxoutset the proven addresses for their holdings now")
     p.add_argument("--engines", default=None, help="comma separated bip322 engines (default: all installed)")
     p.add_argument("--json", action="store_true", help="print the JSON report instead of the summary")
     p.add_argument("--report", metavar="FILE", help="also write the JSON report here")

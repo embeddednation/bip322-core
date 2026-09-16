@@ -214,8 +214,7 @@ the spending transaction, which only an address index or the owner's wallet
 knows; `finalize` records it in `proofs.json` from the node wallet's history
 (`listsinceblock` from the stamp block), and `verify` checks that it really
 spends the output and was confirmed after the stamp block. A spend at or
-before the stamp is a contradiction. `--scan` adds what the proven addresses
-hold now, from a UTXO-set scan of exactly those addresses. The result is OK
+before the stamp is a contradiction. The result is OK
 when the signatures and the stamp check out, the document is consistent, and
 the node contradicts nothing; coins spent since the snapshot are reported,
 not failures. `--offline` verifies signatures only.

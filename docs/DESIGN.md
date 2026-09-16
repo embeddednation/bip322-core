@@ -175,9 +175,8 @@ holds none.
   descriptor would suggest a completeness that it cannot establish (nothing
   rules out a second wallet). Completeness comes from the audited party's
   representation and from reconciling spends between snapshots, which the
-  recorded spends support. `verify --scan` therefore scans exactly the proven
-  addresses and reports what they hold now. The owner's `snapshot.json` keeps
-  the descriptor and the derivation paths.
+  recorded spends support. The owner's `snapshot.json` keeps the descriptor
+  and the derivation paths.
 * **Device health check.** `bip322 checksigners` takes the devices' PSBT files,
   shows the script behind the input and its mapping back to the address,
   verifies each cosigner's signature alone, and finalizes and verifies one

@@ -4,8 +4,9 @@
 
 - `bip322-audit finalize`: `proofs.json` names addresses, not a wallet. The
   descriptor (xpubs), derivation paths, node wallet name and coin source stay
-  in the owner's `snapshot.json`. `verify` no longer has a membership check,
-  and `--scan` reports what the proven addresses hold now.
+  in the owner's `snapshot.json`. `verify` no longer has a membership check;
+  `--scan` and the holdings block are gone (`gettxout` already covers every
+  listed output, and the verifier needs no wallet).
 - `bip322-audit snapshot` records each output's creating block hash, so
   `verify` confirms spent outputs existed at the snapshot on any node, no
   `-txindex` needed.

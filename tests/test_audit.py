@@ -454,21 +454,6 @@ def test_verify_checks_document_consistency(tmp_path, wallet, funded, signer_exp
         verify_proofs(bad, cli, engines=["btclib"])
 
 
-def test_verify_scan_reports_what_the_proven_addresses_hold_now(tmp_path, wallet, funded, signer_expressions):
-    directory = _signed_bundle(tmp_path, wallet, funded, signer_expressions)
-    document = finalize_bundle(directory)
-    extra = dict(funded)
-    extra[wallet.derive(3).address] = [(7_000_000, 995)]  # another address of the same wallet: not proven, not scanned
-    cli = FakeCli(wallet, extra, tip=1200)
-    report = verify_proofs(document, cli, engines=["btclib"], scan=True)
-    scanned = [c for c in cli.calls if c[0] == "scantxoutset"][-1]
-    assert [o["desc"] for o in scanned[2]] == [f"addr({p['address']})" for p in document["proofs"]]
-    holdings = report["current_holdings"]
-    assert holdings["total_sat"] == 85_000_000 and wallet.derive(3).address not in holdings["by_address_sat"]
-    assert holdings["by_address_sat"] == {a: sum(v for v, _ in coins) for a, coins in funded.items()}
-    assert "proven addresses hold now" in format_report(report) and report["ok"]
-
-
 def test_wallet_from_node(wallet, funded):
     from bip322audit.snapshot import check_wallet_against_node, wallet_from_node
 

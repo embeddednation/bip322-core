@@ -248,7 +248,7 @@ def _check_utxo(
     return row
 
 
-def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txindex: bool = False, scan: bool = False) -> dict:
+def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txindex: bool = False) -> dict:
     """Verify a proofs document; ``cli=None`` verifies only what needs no node."""
     spends = document.get("spends") or {}
     engines = list(engines or available_engines())
@@ -315,8 +315,6 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
         )
         report["proofs"].append(row)
 
-    if cli is not None and scan:
-        report["current_holdings"] = _scan_now(cli, document)
     unspent_at_snapshot = sum(
         1
         for p in report["proofs"]
@@ -345,38 +343,6 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
     report["summary"]["document_consistent"] = not report["document_problems"]
     report["ok"] = all_proofs_ok and (stamp_ok if online else True) and contradictions == 0 and not report["document_problems"]
     return report
-
-
-def _scan_now(cli: BitcoinCli, document: dict) -> dict:
-    """What the proven addresses hold *now*, from a UTXO-set scan of exactly those addresses.
-
-    Nothing more is scanned: the document names addresses, not a wallet, so
-    this is a current-balance check of what was proven, not a search for
-    coins elsewhere.
-    """
-    from embit.networks import NETWORKS
-    from embit.script import Script
-
-    descriptors = [{"desc": f"addr({p['address']})"} for p in document["proofs"]]
-    result = cli.call("scantxoutset", "start", descriptors)
-    if not result or not result.get("success"):
-        raise AuditError("scantxoutset did not succeed (another scan running?)")
-    network = NETWORKS.get(document.get("chain") or "main", NETWORKS["main"])
-    proven = {p["address"] for p in document["proofs"]}
-    by_address: dict[str, int] = {}
-    for u in result.get("unspents", []):
-        try:
-            address = Script(bytes.fromhex(u["scriptPubKey"])).address(network)
-        except Exception:  # noqa: BLE001
-            continue
-        if address in proven:
-            by_address[address] = by_address.get(address, 0) + to_sat(u["amount"])
-    return {
-        "height": int(result["height"]),
-        "bestblock": result["bestblock"],
-        "by_address_sat": by_address,
-        "total_sat": sum(by_address.values()),
-    }
 
 
 def _summary_rows(report: dict) -> list[tuple[str, str]]:
@@ -445,11 +411,6 @@ def format_report(report: dict) -> str:
     lines.append(
         f"totals: claimed {btc(t['claimed_sat'])} BTC" + (f", verified unspent now {btc(t['verified_unspent_sat'])} BTC" if node else "")
     )
-    if report.get("current_holdings"):
-        h = report["current_holdings"]
-        lines.append(
-            f"proven addresses hold now, at height {h['height']}: {btc(h['total_sat'])} BTC across {len(h['by_address_sat'])} address(es)"
-        )
     for problem in report.get("document_problems", []):
         lines.append(f"!! document: {problem}")
     lines.append("")

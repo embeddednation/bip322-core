@@ -162,12 +162,9 @@ def test_audit_workflow_on_regtest(core, regtest_wallet, signer_expressions, pri
     assert audit_cli.main(["--cli", cli_arg, "finalize", str(directory), "--offline"]) == 0
     assert json.loads((directory / "proofs.json").read_text())["spends"] is None
     assert audit_cli.main(["--cli", cli_arg, "-w", "watch", "finalize", str(directory)]) == 0
-    assert (
-        audit_cli.main(["--cli", " ".join(core.cli_argv()), "verify", str(directory), "--scan", "--report", str(tmp_path / "r.json")]) == 0
-    )
+    assert audit_cli.main(["--cli", " ".join(core.cli_argv()), "verify", str(directory), "--report", str(tmp_path / "r.json")]) == 0
     cli_report = json.loads((tmp_path / "r.json").read_text())
     assert cli_report["spends_recorded_utc"] and cli_report["summary"]["utxos_shown_unspent_at_snapshot"] == "3/3"
-    assert cli_report["current_holdings"]["total_sat"] == cli_report["totals"]["verified_unspent_sat"]  # same addresses, same node
     handed_over = json.loads((directory / "proofs.json").read_text())
     assert "wallet" not in handed_over and all("index" not in p for p in handed_over["proofs"]) and handed_over["policy"] == "2 of 3"
     assert regtest_wallet.to_descriptor() not in json.dumps(handed_over)
