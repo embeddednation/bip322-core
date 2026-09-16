@@ -438,7 +438,9 @@ def finalize_input(psbt: BIP322PSBT, input_index: int, *, strict: bool = True, s
     if signers is not None:
         absent = [pub for pub in signers if pub not in inp.partial_sigs]
         if absent:
-            raise FinalizeError(f"input {input_index}: selected signer(s) without a signature: " + ", ".join(p.sec().hex()[:16] + "..." for p in absent))
+            raise FinalizeError(
+                f"input {input_index}: selected signer(s) without a signature: " + ", ".join(p.sec().hex()[:16] + "..." for p in absent)
+            )
     spk = inp.script_pubkey
     if spk is None:
         raise FinalizeError(f"input {input_index}: no witness_utxo / non_witness_utxo")
@@ -473,7 +475,9 @@ def finalize_input(psbt: BIP322PSBT, input_index: int, *, strict: bool = True, s
             have = len(inp.partial_sigs) if signers is None else len([p for p in signers if p in inp.partial_sigs])
             detail = f" ({'; '.join(rejected)})" if rejected else ""
             scope = " among the selected signers" if signers is not None else ""
-            raise FinalizeError(f"input {input_index}: need {threshold} valid signatures, have {len(sigs)} of {have} partial signatures{scope}{detail}")
+            raise FinalizeError(
+                f"input {input_index}: need {threshold} valid signatures, have {len(sigs)} of {have} partial signatures{scope}{detail}"
+            )
         witness = Witness([b""] + sigs + [inp.witness_script.data])
     inp.final_scriptwitness = witness
     if inp.redeem_script is not None:  # sh(wsh()) - not produced by this tool but handled
@@ -577,7 +581,9 @@ def signature_from_psbt(psbt: BIP322PSBT, variant: str = "auto") -> str:
     tx = extract_tx(psbt)
     if variant == "smp":
         if choose_variant(psbt) != "smp":
-            raise FinalizeError("the simple (smp) variant is only allowed for a native segwit address with default version/locktime/sequence and no extra inputs")
+            raise FinalizeError(
+                "the simple (smp) variant is only allowed for a native segwit address with default version/locktime/sequence and no extra inputs"
+            )
         return encode_simple(tx.vin[0].witness.items)
     if variant == "ful":
         if len(tx.vin) != 1:

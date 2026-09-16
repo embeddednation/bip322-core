@@ -63,13 +63,17 @@ def cosigner_from_text(text: str) -> Cosigner:
             raise WalletError("key expression must be an extended key with [fingerprint/path] origin")
         hd = key.key.to_public() if key.key.is_private else key.key
         return Cosigner(bytes(key.origin.fingerprint), tuple(key.origin.derivation), hd)
-    raise WalletError(
-        f"cannot interpret {text[:24]!r} as a cosigner: give a keygen JSON file "
-        "or a [fingerprint/path]xpub expression"
-    )
+    raise WalletError(f"cannot interpret {text[:24]!r} as a cosigner: give a keygen JSON file or a [fingerprint/path]xpub expression")
 
 
-def wallet_from_cosigners(threshold: int | None, cosigners: list[Cosigner], network: str = "main", name: str | None = None, sorted_keys: bool = True, wpkh: bool = False) -> Wallet:
+def wallet_from_cosigners(
+    threshold: int | None,
+    cosigners: list[Cosigner],
+    network: str = "main",
+    name: str | None = None,
+    sorted_keys: bool = True,
+    wpkh: bool = False,
+) -> Wallet:
     keys = ",".join(c.key_expression(network) for c in cosigners)
     if wpkh:
         if len(cosigners) != 1:

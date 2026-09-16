@@ -51,7 +51,11 @@ def _positional_values(args, slots: list[tuple[str, str | None]]) -> dict[str, s
     values = list(getattr(args, "values", []) or [])
     if len(values) != len(expected):
         want = " ".join(n.upper() for n in expected) or "no further values"
-        raise CLIError(f"expected {want} after the address, got {len(values)} value(s)" if "address" in vars(args) else f"expected {want}, got {len(values)} value(s)")
+        raise CLIError(
+            f"expected {want} after the address, got {len(values)} value(s)"
+            if "address" in vars(args)
+            else f"expected {want}, got {len(values)} value(s)"
+        )
     return dict(zip(expected, values, strict=True))
 
 
@@ -160,7 +164,7 @@ def format_command_help(prog: str, name: str, parser: argparse.ArgumentParser) -
         n = 1
         for a in positionals:
             meta = a.metavar or a.dest
-            for part in (meta.split() if isinstance(meta, str) else [str(meta)]):
+            for part in meta.split() if isinstance(meta, str) else [str(meta)]:
                 if part == "|":
                     continue
                 required = "required" if a.nargs not in ("*", "?") else "optional"
@@ -246,22 +250,26 @@ def _address_info(wallet: Wallet, derived) -> dict:
         "witness_program": derived.script_pubkey[2:].hex(),
     }
     if derived.witness_script is not None:
-        info.update({
-            "script": "multisig",
-            "hex": derived.witness_script.hex(),
-            "sigsrequired": derived.threshold,
-            "pubkeys": [pk.hex() for pk in derived.pubkeys],
-        })
+        info.update(
+            {
+                "script": "multisig",
+                "hex": derived.witness_script.hex(),
+                "sigsrequired": derived.threshold,
+                "pubkeys": [pk.hex() for pk in derived.pubkeys],
+            }
+        )
     else:
         info["pubkey"] = derived.pubkeys[0].hex()
-    info.update({
-        # same order as the witness script, so the lists line up
-        "hdkeypaths": {pk.hex(): derived.derivation_paths()[pk.hex()] for pk in derived.pubkeys},
-        "branch": derived.branch,
-        "index": derived.index,
-        "desc": add_checksum(concrete.to_string()),
-        "wallet_desc": wallet.to_descriptor(),
-    })
+    info.update(
+        {
+            # same order as the witness script, so the lists line up
+            "hdkeypaths": {pk.hex(): derived.derivation_paths()[pk.hex()] for pk in derived.pubkeys},
+            "branch": derived.branch,
+            "index": derived.index,
+            "desc": add_checksum(concrete.to_string()),
+            "wallet_desc": wallet.to_descriptor(),
+        }
+    )
     return info
 
 
@@ -270,8 +278,12 @@ def cmd_getaddressinfo(args) -> int:
     wallet = _load_wallet(args)
     derived = wallet.find_address(args.address, max_index=args.max_index)
     if derived is None:
-        print(json.dumps({"address": args.address, "ismine": False,
-                          "reason": f"not found in the first {args.max_index + 1} receive/change indexes"}, indent=2))
+        print(
+            json.dumps(
+                {"address": args.address, "ismine": False, "reason": f"not found in the first {args.max_index + 1} receive/change indexes"},
+                indent=2,
+            )
+        )
         return 1
     print(json.dumps(_address_info(wallet, derived), indent=2))
     return 0
@@ -436,7 +448,9 @@ def cmd_checksigners(args) -> int:
         lines.append("")
         for c in report["combinations"]:
             used = ", ".join(f"#{w['index']} {w['role'].split(' (')[0]}" for w in c.get("witness", []) if "signature" in w["role"])
-            lines.append(f"  {'+'.join(c['signers']):<28} {c['state'].upper():<12} {c['reason'] if c['state'] != 'valid' else ('witness: ' + used)}".rstrip())
+            lines.append(
+                f"  {'+'.join(c['signers']):<28} {c['state'].upper():<12} {c['reason'] if c['state'] != 'valid' else ('witness: ' + used)}".rstrip()
+            )
         for p in report["problems"]:
             lines.append(f"  problem: {p}")
         summary = report["summary"]
@@ -464,7 +478,9 @@ def cmd_decodesignature(args) -> int:
 
     if decoded.variant == PREFIX_SIMPLE:
         out["witness"] = with_address(describe_witness(parse_witness(decoded.payload)))
-        out["note"] = "the simple variant is the witness stack of to_sign input 0; to_sign itself is implied (version 0, locktime 0, sequence 0)"
+        out["note"] = (
+            "the simple variant is the witness stack of to_sign input 0; to_sign itself is implied (version 0, locktime 0, sequence 0)"
+        )
     elif decoded.variant == PREFIX_FULL:
         tx = parse_transaction(decoded.payload)
         out["to_sign"] = {
@@ -472,8 +488,13 @@ def cmd_decodesignature(args) -> int:
             "version": tx.version,
             "locktime": tx.locktime,
             "inputs": [
-                {"txid": vin.txid.hex(), "vout": vin.vout, "sequence": vin.sequence,
-                 "scriptSig": vin.script_sig.data.hex(), "witness": with_address(describe_witness(vin.witness.items))}
+                {
+                    "txid": vin.txid.hex(),
+                    "vout": vin.vout,
+                    "sequence": vin.sequence,
+                    "scriptSig": vin.script_sig.data.hex(),
+                    "witness": with_address(describe_witness(vin.witness.items)),
+                }
                 for vin in tx.vin
             ],
             "outputs": [{"value": o.value, "scriptPubKey": o.script_pubkey.data.hex()} for o in tx.vout],
@@ -483,8 +504,12 @@ def cmd_decodesignature(args) -> int:
         tx = psbt.tx
         out["psbt"] = {
             "inputs": [
-                {"txid": inp.txid.hex(), "vout": inp.vout, "finalized": bool(inp.final_scriptwitness) or bool(inp.final_scriptsig),
-                 "witness": with_address(describe_witness(inp.final_scriptwitness.items)) if inp.final_scriptwitness else []}
+                {
+                    "txid": inp.txid.hex(),
+                    "vout": inp.vout,
+                    "finalized": bool(inp.final_scriptwitness) or bool(inp.final_scriptsig),
+                    "witness": with_address(describe_witness(inp.final_scriptwitness.items)) if inp.final_scriptwitness else [],
+                }
                 for inp in psbt.inputs
             ],
             "outputs": [{"value": o.value, "scriptPubKey": o.script_pubkey.data.hex()} for o in tx.vout],
@@ -536,16 +561,30 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="bip322", description=f"BIP-322 message signing: build, finalize and verify proofs ({SPEC}; private-key tooling lives in bip322-dev)")
+    parser = argparse.ArgumentParser(
+        prog="bip322",
+        description=f"BIP-322 message signing: build, finalize and verify proofs ({SPEC}; private-key tooling lives in bip322-dev)",
+    )
     parser.add_argument("--version", action="version", version=f"bip322 {__version__} ({SPEC})")
     # wallet options are accepted here (before the subcommand) as well as after it
-    parser.add_argument("--wallet", "-w", dest="global_wallet", metavar="FILE", help="file holding the wallet descriptor: wsh(sortedmulti(...)) or wpkh(...)")
-    parser.add_argument("--descriptor", "-d", dest="global_descriptor", metavar="DESC", help="descriptor text: wsh(sortedmulti(...)) or wpkh(...)")
+    parser.add_argument(
+        "--wallet",
+        "-w",
+        dest="global_wallet",
+        metavar="FILE",
+        help="file holding the wallet descriptor: wsh(sortedmulti(...)) or wpkh(...)",
+    )
+    parser.add_argument(
+        "--descriptor", "-d", dest="global_descriptor", metavar="DESC", help="descriptor text: wsh(sortedmulti(...)) or wpkh(...)"
+    )
     parser.add_argument("--network", dest="global_network", choices=sorted(NETWORKS), default=None, help="address network (default: main)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("wallet", help="show wallet policy, cosigners and descriptor",
-                       description="Show the wallet's policy, cosigners (fingerprint, origin, xpub) and checksummed descriptor.")
+    p = sub.add_parser(
+        "wallet",
+        help="show wallet policy, cosigners and descriptor",
+        description="Show the wallet's policy, cosigners (fingerprint, origin, xpub) and checksummed descriptor.",
+    )
     _add_wallet_args(p)
     p.set_defaults(func=cmd_wallet, examples=["-w wallet.desc wallet"])
 
@@ -555,13 +594,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--change", action="store_true", help="change branch instead of receive")
     p.add_argument("--json", action="store_true", help="objects with branch/index instead of bare addresses")
     p.description = "Derive the wallet's addresses for one index or an inclusive index range, one per line."
-    p.set_defaults(func=cmd_deriveaddresses, examples=["-w wallet.desc deriveaddresses 0 5", "-w wallet.desc deriveaddresses 3 --change", "-w wallet.desc deriveaddresses"])
+    p.set_defaults(
+        func=cmd_deriveaddresses,
+        examples=["-w wallet.desc deriveaddresses 0 5", "-w wallet.desc deriveaddresses 3 --change", "-w wallet.desc deriveaddresses"],
+    )
 
     p = sub.add_parser("getaddressinfo", help="look an address up in the wallet (like Bitcoin Core's getaddressinfo)")
     _add_wallet_args(p)
     p.add_argument("address", help="the address to look up")
     p.add_argument("--max-index", type=int, default=500, help="how far to search each branch")
-    p.description = "Report whether the address belongs to the wallet and how it is built: script, public keys, key paths, branch/index, descriptor."
+    p.description = (
+        "Report whether the address belongs to the wallet and how it is built: script, public keys, key paths, branch/index, descriptor."
+    )
     p.set_defaults(func=cmd_getaddressinfo, examples=["-w wallet.desc getaddressinfo bc1q..."])
 
     p = sub.add_parser("createpsbt", help="create the BIP-322 to_sign PSBT for a wallet address and a message")
@@ -570,23 +614,34 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("values", nargs="*", metavar="MESSAGE", help="the message text (UTF-8)")
     _add_message_file(p)
     p.add_argument("--max-index", type=int, default=500, help="how far to search the wallet for ADDRESS")
-    p.add_argument("--utxo", choices=["witness", "non_witness", "both"], default="witness", help="which UTXO field(s) to include for input 0")
+    p.add_argument(
+        "--utxo", choices=["witness", "non_witness", "both"], default="witness", help="which UTXO field(s) to include for input 0"
+    )
     p.add_argument("--no-xpubs", action="store_true", help="omit PSBT_GLOBAL_XPUB entries")
     p.add_argument("--psbt-v2", action="store_true", help="emit a BIP-370 (v2) PSBT")
     p.add_argument("--strict-coldcard", action="store_true", help="fail if the message would be refused by a Coldcard")
     _add_output_args(p)
-    p.description = ("Build the BIP-322 to_sign PSBT for the address and message: version 0, one input spending to_spend:0 with "
-                     "sequence 0, one zero-value OP_RETURN output, witness_utxo, witness script, key paths, sighash ALL, global xpubs "
-                     "and the message in global field 0x09. A summary goes to stderr.")
-    p.set_defaults(func=cmd_create, examples=['-w wallet.desc createpsbt bc1q... "proof of control 2026-09-14" --strict-coldcard -o proof.psbt',
-                                              "-w wallet.desc createpsbt bc1q... --message-file msg.txt > proof.psbt"])
+    p.description = (
+        "Build the BIP-322 to_sign PSBT for the address and message: version 0, one input spending to_spend:0 with "
+        "sequence 0, one zero-value OP_RETURN output, witness_utxo, witness script, key paths, sighash ALL, global xpubs "
+        "and the message in global field 0x09. A summary goes to stderr."
+    )
+    p.set_defaults(
+        func=cmd_create,
+        examples=[
+            '-w wallet.desc createpsbt bc1q... "proof of control 2026-09-14" --strict-coldcard -o proof.psbt',
+            "-w wallet.desc createpsbt bc1q... --message-file msg.txt > proof.psbt",
+        ],
+    )
 
     p = sub.add_parser("analyzepsbt", help="report whether a PSBT is a BIP-322 PSBT, its state and what is missing")
     p.add_argument("psbt", help="PSBT file (base64 or binary) or - for stdin")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None, help="address network for the report (default: main)")
-    p.description = ("Apply the BIP-322 PSBT-signer checks (message field, to_spend txid, OP_RETURN output, version) and report the state: "
-                     "address, every cosigner with whether its signature is present and verifies, finalized or not, problems and warnings. "
-                     "Exit 1 if it is not a BIP-322 PSBT.")
+    p.description = (
+        "Apply the BIP-322 PSBT-signer checks (message field, to_spend txid, OP_RETURN output, version) and report the state: "
+        "address, every cosigner with whether its signature is present and verifies, finalized or not, problems and warnings. "
+        "Exit 1 if it is not a BIP-322 PSBT."
+    )
     p.set_defaults(func=cmd_inspect, examples=["analyzepsbt proof.psbt", "analyzepsbt - < proof.psbt"])
 
     p = sub.add_parser("combinepsbt", help="merge partially signed PSBTs from the cosigners")
@@ -598,17 +653,39 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("finalizepsbt", help="finalize a signed PSBT into the BIP-322 signature string")
     p.add_argument("psbt", help="signed PSBT file (base64 or binary) or - for stdin")
-    p.add_argument("--variant", choices=["auto", "smp", "ful", "pof"], default="auto", help="encoding to emit (default auto: smp when the BIP allows it, else ful)")
+    p.add_argument(
+        "--variant",
+        choices=["auto", "smp", "ful", "pof"],
+        default="auto",
+        help="encoding to emit (default auto: smp when the BIP allows it, else ful)",
+    )
     p.add_argument("--network", choices=sorted(NETWORKS), default=None, help="address network for the report (default: main)")
     p.add_argument("--lenient", action="store_true", help="skip invalid partial signatures instead of failing")
-    p.add_argument("--signers", metavar="FP[,FP...]", help="use only these cosigners' signatures (master fingerprints or pubkey prefixes), e.g. to prove a specific pair works")
+    p.add_argument(
+        "--signers",
+        metavar="FP[,FP...]",
+        help="use only these cosigners' signatures (master fingerprints or pubkey prefixes), e.g. to prove a specific pair works",
+    )
     p.add_argument("--output", "-o", help="write the signature (or the --json report) here instead of stdout")
-    p.add_argument("--json", action="store_true", help="emit a JSON report (address, message, variant, signature, to_sign hex) instead of the bare signature")
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a JSON report (address, message, variant, signature, to_sign hex) instead of the bare signature",
+    )
     p.add_argument("--output-psbt", help="also write the finalized PSBT (for the pof variant or for the record)")
     p.add_argument("--binary", action="store_true", help="write --output-psbt in binary instead of base64")
-    p.description = ("BIP-174 finalizer: check every partial signature (strict DER, low-S, SIGHASH_ALL, verifies against the sighash), "
-                     "build the witness, and print the encoded proof (smp when the BIP allows it, ful otherwise). Does not verify the proof.")
-    p.set_defaults(func=cmd_finalize, examples=["finalizepsbt proof-AB.psbt -o proof.sig", "finalizepsbt proof-ABC.psbt --signers ea34d476,7d5dc65a", "finalizepsbt proof-AB.psbt --variant ful --json"])
+    p.description = (
+        "BIP-174 finalizer: check every partial signature (strict DER, low-S, SIGHASH_ALL, verifies against the sighash), "
+        "build the witness, and print the encoded proof (smp when the BIP allows it, ful otherwise). Does not verify the proof."
+    )
+    p.set_defaults(
+        func=cmd_finalize,
+        examples=[
+            "finalizepsbt proof-AB.psbt -o proof.sig",
+            "finalizepsbt proof-ABC.psbt --signers ea34d476,7d5dc65a",
+            "finalizepsbt proof-AB.psbt --variant ful --json",
+        ],
+    )
 
     p = sub.add_parser("checksigners", help="the whole picture of a signed PSBT: script chain, every cosigner, every threshold combination")
     p.add_argument("psbts", nargs="+", metavar="PSBT", help="the signed PSBT, or the separate files each device produced (combined here)")
@@ -616,11 +693,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--engines", default=None, help="comma separated bip322 engines (default: all installed)")
     p.add_argument("--json", action="store_true", help="JSON report including every combination's proof")
     p.add_argument("--output", "-o", help="write the report here instead of stdout")
-    p.description = ("Device health check and explanation in one: rebuild the script behind the input and show how it hashes back to "
-                     "the scriptPubKey and address; verify each cosigner's signature on its own; then finalize and verify one proof per "
-                     "threshold-sized combination of cosigners (all three pairs of a 2-of-3), showing the witness each one assembled. "
-                     "Exit 0 when the script matches, every signer is valid and every combination verifies.")
-    p.set_defaults(func=cmd_checksigners, examples=["checksigners proof-ccA.psbt proof-ccB.psbt proof-ccC.psbt", "checksigners combined.psbt --json -o signers-2026-09-15.json"])
+    p.description = (
+        "Device health check and explanation in one: rebuild the script behind the input and show how it hashes back to "
+        "the scriptPubKey and address; verify each cosigner's signature on its own; then finalize and verify one proof per "
+        "threshold-sized combination of cosigners (all three pairs of a 2-of-3), showing the witness each one assembled. "
+        "Exit 0 when the script matches, every signer is valid and every combination verifies."
+    )
+    p.set_defaults(
+        func=cmd_checksigners,
+        examples=[
+            "checksigners proof-ccA.psbt proof-ccB.psbt proof-ccC.psbt",
+            "checksigners combined.psbt --json -o signers-2026-09-15.json",
+        ],
+    )
 
     p = sub.add_parser("verifymessage", help="verify a BIP-322 signature (same argument order as Bitcoin Core's RPC)")
     p.add_argument("address")
@@ -631,36 +716,53 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--require-prefix", action="store_true", help="reject signatures without smp/ful/pof prefix")
     p.add_argument("--no-legacy", action="store_true", help="reject legacy BIP-137 signatures")
     p.add_argument("--json", action="store_true", help="self-contained JSON report instead of text")
-    p.description = ("Verify a BIP-322 proof (smp, ful, pof or legacy) for the address and message with every installed script engine. "
-                     "Exit codes: 0 valid, 1 invalid, 3 inconclusive, 2 error.")
-    p.set_defaults(func=cmd_verify, examples=['verifymessage bc1q... smp... "proof of control 2026-09-14"',
-                                              'verifymessage bc1q... "proof of control 2026-09-14" --signature-file proof.sig --json'])
+    p.description = (
+        "Verify a BIP-322 proof (smp, ful, pof or legacy) for the address and message with every installed script engine. "
+        "Exit codes: 0 valid, 1 invalid, 3 inconclusive, 2 error."
+    )
+    p.set_defaults(
+        func=cmd_verify,
+        examples=[
+            'verifymessage bc1q... smp... "proof of control 2026-09-14"',
+            'verifymessage bc1q... "proof of control 2026-09-14" --signature-file proof.sig --json',
+        ],
+    )
     p.epilog = "exit codes: 0 valid, 1 invalid, 3 inconclusive, 2 error"
 
     p = sub.add_parser("decodesignature", help="open a proof string into its parts (witness stack, to_sign or PSBT)")
     p.add_argument("signature", help="an smp/ful/pof proof string, or - to read it from stdin")
-    p.add_argument("--network", choices=sorted(NETWORKS), default=None, help="network for the address a witness script commits to (default: main)")
+    p.add_argument(
+        "--network", choices=sorted(NETWORKS), default=None, help="network for the address a witness script commits to (default: main)"
+    )
     p.add_argument("--output", "-o", help="write the JSON here instead of stdout")
-    p.description = ("Decode a BIP-322 signature: for smp the witness stack (each element labelled: dummy, signatures with their "
-                     "sighash byte, the witness script disassembled), for ful the whole to_sign transaction, for pof the finalized PSBT. "
-                     "Nothing is verified; use verifymessage for that.")
+    p.description = (
+        "Decode a BIP-322 signature: for smp the witness stack (each element labelled: dummy, signatures with their "
+        "sighash byte, the witness script disassembled), for ful the whole to_sign transaction, for pof the finalized PSBT. "
+        "Nothing is verified; use verifymessage for that."
+    )
     p.set_defaults(func=cmd_decodesignature, examples=["decodesignature smp...", "decodesignature - < proof.sig"])
 
     p = sub.add_parser("lint-message", help="check a message against Coldcard's display rules")
     p.add_argument("values", nargs="*", metavar="MESSAGE")
     _add_message_file(p)
-    p.description = "Check a message against Coldcard's display rules (2-330 printable ASCII, no leading/trailing space, no run of three spaces)."
+    p.description = (
+        "Check a message against Coldcard's display rules (2-330 printable ASCII, no leading/trailing space, no run of three spaces)."
+    )
     p.set_defaults(func=cmd_lint, examples=['lint-message "proof of control 2026-09-14"'])
 
     p = sub.add_parser("engines", help="list available script engines", description="List the installed script engines and their versions.")
     p.set_defaults(func=cmd_engines, examples=["engines"])
 
-    add_help_command("bip322", sub, {
-        "Wallet": ["wallet", "deriveaddresses", "getaddressinfo"],
-        "PSBT": ["createpsbt", "analyzepsbt", "combinepsbt", "finalizepsbt"],
-        "Verification": ["verifymessage", "checksigners"],
-        "Util": ["decodesignature", "lint-message", "engines", "help"],
-    })
+    add_help_command(
+        "bip322",
+        sub,
+        {
+            "Wallet": ["wallet", "deriveaddresses", "getaddressinfo"],
+            "PSBT": ["createpsbt", "analyzepsbt", "combinepsbt", "finalizepsbt"],
+            "Verification": ["verifymessage", "checksigners"],
+            "Util": ["decodesignature", "lint-message", "engines", "help"],
+        },
+    )
     return parser
 
 

@@ -195,11 +195,37 @@ def encode_pof(psbt_bytes: bytes) -> str:
     return PREFIX_POF + _b64(bytes(psbt_bytes))
 
 
-_OPCODE_NAMES = {0x00: "OP_0", 0xAC: "OP_CHECKSIG", 0xAD: "OP_CHECKSIGVERIFY", 0xAE: "OP_CHECKMULTISIG", 0xAF: "OP_CHECKMULTISIGVERIFY",
-                 0x63: "OP_IF", 0x64: "OP_NOTIF", 0x67: "OP_ELSE", 0x68: "OP_ENDIF", 0x69: "OP_VERIFY", 0x6A: "OP_RETURN", 0x75: "OP_DROP",
-                 0x76: "OP_DUP", 0x87: "OP_EQUAL", 0x88: "OP_EQUALVERIFY", 0xA9: "OP_HASH160", 0xA8: "OP_SHA256", 0x9C: "OP_NUMEQUAL",
-                 0xB1: "OP_CHECKLOCKTIMEVERIFY", 0xB2: "OP_CHECKSEQUENCEVERIFY", 0xBA: "OP_CHECKSIGADD", 0x7C: "OP_SWAP", 0x7B: "OP_ROT",
-                 0x9A: "OP_BOOLAND", 0x9B: "OP_BOOLOR", 0x82: "OP_SIZE", 0x8B: "OP_1ADD", 0x93: "OP_ADD", 0xA0: "OP_GREATERTHAN"}
+_OPCODE_NAMES = {
+    0x00: "OP_0",
+    0xAC: "OP_CHECKSIG",
+    0xAD: "OP_CHECKSIGVERIFY",
+    0xAE: "OP_CHECKMULTISIG",
+    0xAF: "OP_CHECKMULTISIGVERIFY",
+    0x63: "OP_IF",
+    0x64: "OP_NOTIF",
+    0x67: "OP_ELSE",
+    0x68: "OP_ENDIF",
+    0x69: "OP_VERIFY",
+    0x6A: "OP_RETURN",
+    0x75: "OP_DROP",
+    0x76: "OP_DUP",
+    0x87: "OP_EQUAL",
+    0x88: "OP_EQUALVERIFY",
+    0xA9: "OP_HASH160",
+    0xA8: "OP_SHA256",
+    0x9C: "OP_NUMEQUAL",
+    0xB1: "OP_CHECKLOCKTIMEVERIFY",
+    0xB2: "OP_CHECKSEQUENCEVERIFY",
+    0xBA: "OP_CHECKSIGADD",
+    0x7C: "OP_SWAP",
+    0x7B: "OP_ROT",
+    0x9A: "OP_BOOLAND",
+    0x9B: "OP_BOOLOR",
+    0x82: "OP_SIZE",
+    0x8B: "OP_1ADD",
+    0x93: "OP_ADD",
+    0xA0: "OP_GREATERTHAN",
+}
 
 
 def disassemble(script: bytes) -> str:

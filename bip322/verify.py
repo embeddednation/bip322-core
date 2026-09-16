@@ -171,7 +171,9 @@ def verify_message(
 
     if decoded.variant == VARIANT_LEGACY:
         if not allow_legacy:
-            return VerifyResult(State.INVALID, "legacy signatures are not accepted", address, VARIANT_LEGACY, message=message, signature=signature)
+            return VerifyResult(
+                State.INVALID, "legacy signatures are not accepted", address, VARIANT_LEGACY, message=message, signature=signature
+            )
         result = _legacy(address, spk, signature, message)
         result.message, result.signature = message, signature
         return result
@@ -179,7 +181,9 @@ def verify_message(
     to_spend = build_to_spend(message, spk)
     to_spend_txid = to_spend.txid()
     prevouts: list[tuple[int, bytes]] = [(0, spk)]
-    result = VerifyResult(State.INVALID, "", address, decoded.variant, message=message, signature=signature, to_spend_txid=to_spend_txid.hex())
+    result = VerifyResult(
+        State.INVALID, "", address, decoded.variant, message=message, signature=signature, to_spend_txid=to_spend_txid.hex()
+    )
 
     try:
         if decoded.variant == PREFIX_SIMPLE:
@@ -191,7 +195,9 @@ def verify_message(
         elif decoded.variant == PREFIX_FULL:
             to_sign = parse_transaction(decoded.payload)
             if len(to_sign.vin) != 1:
-                result.reason = f"full (ful) signature must have exactly one input, found {len(to_sign.vin)}; proofs with extra inputs use pof"
+                result.reason = (
+                    f"full (ful) signature must have exactly one input, found {len(to_sign.vin)}; proofs with extra inputs use pof"
+                )
                 return result
         elif decoded.variant == PREFIX_POF:
             psbt = parse_psbt(decoded.payload)
@@ -323,8 +329,14 @@ def check_signers(psbt: BIP322PSBT, *, engines: Sequence[str] = ("btclib",), net
                 signature = signature_from_psbt(trial)
                 verdict = verify_message(info.address, signature, info.message, engines=engines)
                 witness = describe_witness(trial.inputs[0].final_scriptwitness.items)
-                row.update({"state": verdict.state.value, "reason": verdict.reason, "signature": signature,
-                            "witness": [{k: v for k, v in w.items() if k in ("index", "role", "sighash", "bytes")} for w in witness]})
+                row.update(
+                    {
+                        "state": verdict.state.value,
+                        "reason": verdict.reason,
+                        "signature": signature,
+                        "witness": [{k: v for k, v in w.items() if k in ("index", "role", "sighash", "bytes")} for w in witness],
+                    }
+                )
             except FinalizeError as exc:
                 row["reason"] = str(exc)
             report["combinations"].append(row)
@@ -372,11 +384,13 @@ def _script_chain(psbt: BIP322PSBT, network: str) -> dict | None:
         chain = {"type": "p2wpkh", "pubkey": pub.hex(), "hash160": hash160(pub).hex()}
     else:
         return {"type": Script(spk).script_type() or "unknown", "note": "not a script this tool rebuilds"}
-    chain.update({
-        "scriptPubKey": derived_spk.hex(),
-        "address": Script(derived_spk).address(NETWORKS[network]),
-        "matches_input": derived_spk == spk,
-    })
+    chain.update(
+        {
+            "scriptPubKey": derived_spk.hex(),
+            "address": Script(derived_spk).address(NETWORKS[network]),
+            "matches_input": derived_spk == spk,
+        }
+    )
     return chain
 
 

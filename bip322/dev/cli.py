@@ -70,7 +70,9 @@ def cmd_sign(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="bip322-dev", description="bip322 scaffolding that handles private keys: dummy cosigners, wallet assembly, software signing")
+    parser = argparse.ArgumentParser(
+        prog="bip322-dev", description="bip322 scaffolding that handles private keys: dummy cosigners, wallet assembly, software signing"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("keygen", help="generate a dummy cosigner (fingerprint, xpub/xprv key expressions) for tests")
@@ -79,7 +81,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--origin", default="48h/0h/0h/2h", help="BIP32 origin path (default: BIP-48 P2WSH multisig account 0)")
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
     p.add_argument("--output", "-o", help="write the JSON here instead of stdout")
-    p.description = "Generate a dummy cosigner for tests and demos: fingerprint, origin, xpub and xprv key expressions. Never for real funds."
+    p.description = (
+        "Generate a dummy cosigner for tests and demos: fingerprint, origin, xpub and xprv key expressions. Never for real funds."
+    )
     p.set_defaults(func=cmd_keygen, examples=['keygen --label A --seed "demo cosigner A" -o cosigner-A.json', "keygen --origin 84h/0h/0h"])
 
     p = sub.add_parser("makewallet", help="write a checksummed wsh(sortedmulti(...)) or wpkh(...) descriptor from keys")
@@ -90,7 +94,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--network", choices=sorted(NETWORKS), default=None)
     p.add_argument("--output", "-o", help="write the descriptor here instead of stdout")
     p.description = "Assemble a checksummed wsh(sortedmulti(k,...)) or wpkh(...) descriptor from cosigner keys."
-    p.set_defaults(func=cmd_makewallet, examples=["makewallet -t 2 cosigner-A.json cosigner-B.json cosigner-C.json -o wallet.desc", "makewallet --wpkh key.json"])
+    p.set_defaults(
+        func=cmd_makewallet,
+        examples=["makewallet -t 2 cosigner-A.json cosigner-B.json cosigner-C.json -o wallet.desc", "makewallet --wpkh key.json"],
+    )
 
     p = sub.add_parser("signpsbt", help="add signatures with software keys (like Bitcoin Core's signrawtransactionwithkey: PSBT then keys)")
     p.add_argument("psbt", help="BIP-322 PSBT file (base64 or binary) or - for stdin")
@@ -98,8 +105,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--network", choices=sorted(NETWORKS), default=None, help="address network for the report (default: main)")
     p.add_argument("--force", action="store_true", help="sign even if the PSBT fails the BIP-322 checks")
     _add_output_args(p)
-    p.description = "Add partial signatures to a BIP-322 PSBT with software keys; refuses PSBTs that fail the BIP-322 checks unless --force."
-    p.set_defaults(func=cmd_sign, examples=["signpsbt proof.psbt cosigner-A.json -o proof-A.psbt", "signpsbt proof-A.psbt '[fp/48h/0h/0h/2h]xprv.../<0;1>/*' > proof-AB.psbt"])
+    p.description = (
+        "Add partial signatures to a BIP-322 PSBT with software keys; refuses PSBTs that fail the BIP-322 checks unless --force."
+    )
+    p.set_defaults(
+        func=cmd_sign,
+        examples=[
+            "signpsbt proof.psbt cosigner-A.json -o proof-A.psbt",
+            "signpsbt proof-A.psbt '[fp/48h/0h/0h/2h]xprv.../<0;1>/*' > proof-AB.psbt",
+        ],
+    )
 
     add_help_command("bip322-dev", sub, {"Keys and signing": ["keygen", "makewallet", "signpsbt", "help"]})
     return parser

@@ -120,7 +120,10 @@ def kernel_available() -> bool:
 def kernel_run(prevouts: Sequence[Prevout], tx_bytes: bytes) -> EngineRun:
     """Verify every input with Bitcoin Core's interpreter (consensus flags)."""
     versions = engine_versions().get("kernel") or {}
-    meta = {"version": versions.get("bitcoin-core"), "bindings": f"py-bitcoinkernel {versions.get('py-bitcoinkernel')}" if versions else None}
+    meta = {
+        "version": versions.get("bitcoin-core"),
+        "bindings": f"py-bitcoinkernel {versions.get('py-bitcoinkernel')}" if versions else None,
+    }
     try:
         from pbk.script import (
             PrecomputedTransactionData,

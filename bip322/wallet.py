@@ -103,9 +103,7 @@ class DerivedAddress:
     derivations: dict[bytes, tuple[bytes, tuple[int, ...]]]
 
     def derivation_paths(self) -> dict[str, str]:
-        return {
-            sec.hex(): f"{fp.hex()}:{path_to_str(path)}" for sec, (fp, path) in self.derivations.items()
-        }
+        return {sec.hex(): f"{fp.hex()}:{path_to_str(path)}" for sec, (fp, path) in self.derivations.items()}
 
 
 # --------------------------------------------------------------------------- #
@@ -140,8 +138,7 @@ class Wallet:
         for key in descriptor.keys:
             if not key.is_extended or key.origin is None or key.allowed_derivation is None:
                 raise WalletError(
-                    "every key must be an extended key with origin info and a wildcard, "
-                    "e.g. [0f056943/48h/0h/0h/2h]xpub.../<0;1>/*"
+                    "every key must be an extended key with origin info and a wildcard, e.g. [0f056943/48h/0h/0h/2h]xpub.../<0;1>/*"
                 )
             if key.allowed_derivation.has_hardend:
                 raise WalletError("hardened derivation after the xpub is not supported")
@@ -273,7 +270,11 @@ class Wallet:
             "script": script,
             "descriptor": self.to_descriptor(),
             "cosigners": [
-                {"fingerprint": c.fingerprint_hex, "origin": path_to_str(c.origin_path), "xpub": c.xpub.to_base58(NETWORKS[self.network]["xpub"])}
+                {
+                    "fingerprint": c.fingerprint_hex,
+                    "origin": path_to_str(c.origin_path),
+                    "xpub": c.xpub.to_base58(NETWORKS[self.network]["xpub"]),
+                }
                 for c in self.cosigners
             ],
         }

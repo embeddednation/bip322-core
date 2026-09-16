@@ -40,5 +40,3 @@ def sign_psbt(psbt: BIP322PSBT, signer, sighash: int = SIGHASH.ALL) -> int:
     if isinstance(signer, HDKey) and not signer.is_private:
         raise PSBTBuildError("signer is a public key")
     return psbt.sign_with(signer, sighash)
-
-
