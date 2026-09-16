@@ -7,6 +7,8 @@ name = "bip322"
 version = "0.3.1"
 description = "BIP-322 (simple / full) message signing tooling for P2WSH multisig quorums: PSBT creation, finalization and verification"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "embit>=0.8.0",
     "btclib>=2026.9.10",
