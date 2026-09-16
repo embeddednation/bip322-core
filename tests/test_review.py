@@ -342,3 +342,14 @@ def test_cli_version_and_exit_codes(tmp_path, wallet, signer_expressions, capsys
     assert main(["verifymessage", address, "smp!!", MESSAGE.decode(), "--json"]) == 1
     out = json.loads(capsys.readouterr().out)
     assert out["tool"].startswith("bip322-core ") and out["signature"] == "smp!!" and out["state"] == "invalid"
+
+
+def test_core_package_stays_pure():
+    """bip322core/ never imports chain-facing code: subprocesses, sockets, HTTP, the audit tool or refcheck."""
+    import re
+    from pathlib import Path
+
+    forbidden = re.compile(r"^\s*(?:from|import)\s+(bip322audit|subprocess|socket|http|urllib|requests|refcheck)\b", re.M)
+    root = Path(__file__).resolve().parent.parent / "bip322core"
+    for path in root.rglob("*.py"):
+        assert not forbidden.search(path.read_text()), f"{path} imports chain-facing or audit code"

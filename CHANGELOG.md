@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 (2026-09-16)
+
+- The audit workflow moved to its own repository and distribution,
+  `bip322-audit` (https://github.com/embeddednation/bip322-audit), which
+  depends on this package. `bip322-core` no longer ships the `bip322audit`
+  package or the `bip322-audit` command. Its changelog continues there.
+
 ## 0.4.0 (2026-09-16)
 
 - The import package is now `bip322core` and the distribution `bip322-core`;

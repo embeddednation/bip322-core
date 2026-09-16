@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-shot setup from a fresh clone: virtualenv, hash-pinned dependencies,
-# editable install of the bip322 / bip322-dev / bip322-audit commands, tests.
+# editable install of the bip322 / bip322-dev / bip322-refcheck commands, tests.
 #
 #   ./setup.sh                 # venv + deps + install + tests
 #   ./setup.sh --with-refcheck # also download Core/Knots/Go and build the btcd wrapper (~200 MB)
@@ -64,4 +64,4 @@ echo
 echo
 echo "ready. put the commands on your PATH with:"
 echo "  export PATH=\"$PWD/.venv/bin:\$PATH\""
-echo "then: bip322 help, bip322-audit help, examples/walkthrough.sh"
+echo "then: bip322 help, examples/walkthrough.sh"
