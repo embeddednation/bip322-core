@@ -174,7 +174,9 @@ bip322-audit -w treasury snapshot --text "Annual audit {date}"      # the node w
 #   -> snapshot-2026-09-14-912345/: snapshot.json, message.txt, to_sign-01.psbt ... one per funded address
 #   sign every PSBT on two Coldcards, put the results into snapshot-.../signed/
 bip322-audit finalize snapshot-2026-09-14-912345           # -> proofs.json (hand this to the auditor)
-bip322-audit verify snapshot-2026-09-14-912345 --txindex --report audit-report.json
+bip322-audit verify snapshot-2026-09-14-912345 --report audit-report.json
+# months later, if coins have moved since the snapshot:
+bip322-audit -w treasury spends snapshot-2026-09-14-912345  # -> spends.json (hand this over too)
 ```
 
 `snapshot` reads the wallet's descriptor from the node wallet (`-w NAME`,
@@ -189,17 +191,33 @@ before it starts; `--source` forces either). The template accepts
 `{date}`, `{time}`, `{height}`, `{hash}`, and is checked against Coldcard's
 message rules.
 
+`proofs.json` carries the addresses, the proofs, the outputs and the wallet
+policy (`2-of-3 P2WSH`), but **not the wallet descriptor**: the xpubs would let
+the auditor derive every address of the wallet, which the proofs do not need.
+`finalize --with-descriptor` includes it when that is wanted; it buys the
+auditor two extra checks (see below). `snapshot.json`, the owner's copy, keeps
+it either way.
+
 `verify` re-checks everything on the auditor's node: each BIP-322 signature,
-the stamp block (`getblockheader`: height, time, in main chain), that every
-proven address really sits at its stated index of the declared descriptor,
-that the document is consistent with the signed message, and each listed
-output with `gettxout` (amount, address, creation height at or before the
-stamp). Outputs spent since the snapshot are reported, not failures;
-`--txindex` on a node with `-txindex` confirms they existed at the snapshot.
-`--scan` additionally scans the UTXO set for the whole descriptor and lists
-funded addresses no proof covers, which is the completeness check. The result
-is OK when the signatures and the stamp check out, the document is consistent,
-and the node contradicts nothing. `--offline` verifies signatures only.
+the stamp block (`getblockheader`: height, time, in main chain), that the
+document is consistent with the signed message, and each listed output.
+An output still unspent is checked with `gettxout` (amount, address,
+creation height at or before the stamp), which also shows it was unspent at
+the stamp. An output spent since is fetched by the block hash the snapshot
+recorded (no `-txindex` needed): that shows it existed at the stamp with the
+claimed amount and address. Whether it was still *unspent* at the stamp needs
+the spending transaction, which only an address index or the owner's wallet
+knows; `bip322-audit spends` writes it into `spends.json` from the node
+wallet's history, and `verify` (which picks the file up next to
+`proofs.json`, or via `--spends`) checks that it really spends the output and
+was confirmed after the stamp block. A spend at or before the stamp is a
+contradiction. With the descriptor shared, `verify` also checks that every
+proven address sits at its stated index, and `--scan` scans the UTXO set for
+the whole descriptor and lists funded addresses no proof covers, the
+completeness check; without it, `--scan` covers the proven addresses only and
+says so. The result is OK when the signatures and the stamp check out, the
+document is consistent, and the node contradicts nothing; coins spent since
+the snapshot are reported, not failures. `--offline` verifies signatures only.
 
 `examples/audit_walkthrough.sh` runs the whole thing on a throwaway regtest
 node, including spending a coin after the snapshot.

@@ -7,7 +7,7 @@ import pytest
 
 from bip322.dev.signing import sign_psbt
 from bip322.psbt import parse_psbt
-from bip322audit.audit import AuditError, collect_psbts, finalize_bundle, format_report, load_proofs, verify_proofs
+from bip322audit.audit import AuditError, collect_psbts, collect_spends, finalize_bundle, format_report, load_proofs, verify_proofs
 from bip322audit.rpc import BitcoinCli, RpcError, to_sat
 from bip322audit.snapshot import coins_from_listunspent, coins_from_scantxoutset, take_snapshot, write_bundle
 from bip322audit.stamp import Stamp, check_stamp, compose_message, fetch_stamp, iso_utc, parse_stamp
@@ -26,8 +26,17 @@ class FakeCli(BitcoinCli):
         super().__init__(["bitcoin-cli"] + (["-rpcwallet=watch"] if rpcwallet else []))
         self.chain_name, self.tip_height, self.wallet = chain, tip, wallet
         self.funded = funded  # address -> [(amount_sat, created_height)]
-        self.spent = set(spent)  # (txid, vout)
+        # spent outpoints: {(txid, vout): spend_height}; a bare iterable of outpoints means "spent at the tip"
+        self.spent = dict(spent) if isinstance(spent, dict) else {k: tip for k in spent}
         self.calls: list[tuple] = []
+
+    @staticmethod
+    def spend_txid(txid, vout):
+        return "5d" + txid[2:-2] + f"{vout:02x}"
+
+    def _spends(self):
+        """(spend txid, height, spent outpoint) per spent output."""
+        return [(self.spend_txid(t, v), h, (t, v)) for (t, v), h in self.spent.items()]
 
     def _utxos(self):
         rows = []
@@ -129,6 +138,48 @@ class FakeCli(BitcoinCli):
                         "scriptPubKey": {"address": address},
                     }
             return None
+        if method == "getrawtransaction":
+            txid, blockhash = params[0], params[2] if len(params) > 2 else None
+            if blockhash is None:
+                raise RpcError("No such mempool transaction. Use -txindex or provide a block hash")
+            for address, t, v, amount, height in self._utxos():
+                if t == txid:
+                    if blockhash != fake_hash(height):
+                        raise RpcError("No such transaction found in the provided block")
+                    vout = [{"value": "0.00000001", "n": i, "scriptPubKey": {"address": "bc1qother"}} for i in range(v)]
+                    vout.append({"value": f"{amount / 1e8:.8f}", "n": v, "scriptPubKey": {"address": address}})
+                    return {"txid": t, "blockhash": blockhash, "vin": [{"txid": "aa" * 32, "vout": 0}], "vout": vout}
+            for stxid, height, (t, v) in self._spends():
+                if stxid == txid:
+                    if blockhash != fake_hash(height):
+                        raise RpcError("No such transaction found in the provided block")
+                    return {"txid": stxid, "blockhash": blockhash, "vin": [{"txid": t, "vout": v}], "vout": []}
+            raise RpcError("No such transaction found in the provided block")
+        if method == "listsinceblock":
+            since = int(params[0], 16)
+            rows = []
+            for stxid, height, _ in self._spends():
+                if height > since:
+                    row = {
+                        "txid": stxid,
+                        "category": "send",
+                        "confirmations": self.tip_height - height + 1,
+                        "blockhash": fake_hash(height),
+                        "blockheight": height,
+                    }
+                    rows += [row, {**row, "category": "receive"}]  # Core lists a tx once per affected address
+            return {"transactions": rows, "lastblock": fake_hash(self.tip_height)}
+        if method == "gettransaction":
+            for stxid, height, (t, v) in self._spends():
+                if stxid == params[0]:
+                    return {
+                        "txid": stxid,
+                        "blockhash": fake_hash(height),
+                        "blockheight": height,
+                        "confirmations": self.tip_height - height + 1,
+                        "decoded": {"vin": [{"txid": t, "vout": v}], "vout": []},
+                    }
+            raise RpcError("Invalid or non-wallet transaction id")
         raise RpcError(f"fake node: unsupported {method}")
 
 
@@ -170,7 +221,7 @@ def test_coins_from_listunspent_filters_by_snapshot_block_and_wallet(wallet, fun
     cli = FakeCli(wallet, funded, tip=1000)
     stamp = fetch_stamp(cli, 6)  # height 994: the 993 output is in, the 980 one too
     coins = coins_from_listunspent(cli, wallet, stamp, 1000, max_index=20)
-    assert cli.calls[-1] == ("listunspent", 7, 9999999)
+    assert ("listunspent", 7, 9999999) in cli.calls and all(u.blockhash == fake_hash(u.height) for c in coins for u in c.utxos)
     assert [(c.derived.branch, c.derived.index, c.total_sat) for c in coins] == [(0, 0, 75_000_000), (1, 1, 10_000_000)]
     stamp = fetch_stamp(cli, 9)  # height 991: the 993 output is not yet confirmed
     coins = coins_from_listunspent(cli, wallet, stamp, 1000, max_index=20)
@@ -232,13 +283,57 @@ def test_finalize_and_verify_with_fake_node(tmp_path, wallet, funded, signer_exp
     text = format_report(report)
     assert "RESULT: OK" in text and "3/3" in text and "0.85000000 BTC" in text and " sat" not in text
 
-    # one output spent since the snapshot: reported, not a failure; --txindex can't help on the fake node
+    # one output spent since the snapshot: reported, not a failure. The recorded block hash lets the
+    # creating tx be fetched without -txindex, so existence at the snapshot is still verified.
     utxo = document["proofs"][0]["utxos"][0]
-    cli = FakeCli(wallet, funded, tip=1200, spent=[(utxo["txid"], utxo["vout"])])
+    assert utxo["blockhash"] == fake_hash(utxo["height"])
+    outpoint = (utxo["txid"], utxo["vout"])
+    cli = FakeCli(wallet, funded, tip=1200, spent={outpoint: 1150})
     report = verify_proofs(document, cli, engines=["btclib"])
-    assert report["ok"] and report["summary"]["utxos_verified_at_snapshot"] == "2/3" and not report["summary"]["all_utxos_still_unspent"]
-    assert report["proofs"][0]["utxos"][0]["status"] == "spent_or_unknown"
-    assert report["totals"]["verified_unspent_sat"] == 35_000_000
+    assert report["ok"] and report["summary"]["utxos_verified_at_snapshot"] == "3/3" and not report["summary"]["all_utxos_still_unspent"]
+    row = report["proofs"][0]["utxos"][0]
+    assert row["status"] == "spent_after_snapshot" and row["verified"] and "unspent_at_snapshot" not in row and "spends.json" in row["note"]
+    assert report["summary"]["utxos_shown_unspent_at_snapshot"] == "2/3" and report["totals"]["verified_unspent_sat"] == 35_000_000
+    # spends.json from the owner's wallet: the spend is confirmed after the stamp block, so it was unspent at the snapshot
+    spends_doc = collect_spends(cli, document)
+    assert list(spends_doc["spends"]) == [f"{utxo['txid']}:{utxo['vout']}"]
+    assert spends_doc["spends"][f"{utxo['txid']}:{utxo['vout']}"] == {
+        "spent_by": cli.spend_txid(*outpoint),
+        "blockhash": fake_hash(1150),
+        "height": 1150,
+    }
+    report = verify_proofs(document, cli, engines=["btclib"], spends=spends_doc["spends"])
+    row = report["proofs"][0]["utxos"][0]
+    assert (
+        report["ok"]
+        and row["unspent_at_snapshot"]
+        and row["spent_height"] == 1150
+        and report["summary"]["utxos_shown_unspent_at_snapshot"] == "3/3"
+    )
+    assert "unspent at snapshot" in format_report(report)
+    # a spend at or before the stamp block contradicts the claim
+    early = FakeCli(wallet, funded, tip=1200, spent={outpoint: 990})
+    assert collect_spends(early, document)["spends"] == {}  # listsinceblock(stamp) never lists it; a forged spends.json might
+    forged = {f"{utxo['txid']}:{utxo['vout']}": {"spent_by": early.spend_txid(*outpoint), "blockhash": fake_hash(990), "height": 990}}
+    report = verify_proofs(document, early, engines=["btclib"], spends=forged)
+    assert not report["ok"] and report["proofs"][0]["utxos"][0]["contradiction"] and report["summary"]["contradictions"] == 1
+    # spends.json naming a transaction that does not spend the output proves nothing
+    report = verify_proofs(
+        document,
+        cli,
+        engines=["btclib"],
+        spends={f"{utxo['txid']}:{utxo['vout']}": {"spent_by": cli.spend_txid("ab" * 32, 0), "blockhash": fake_hash(1150), "height": 1150}},
+    )
+    assert report["ok"] and "unspent_at_snapshot" not in report["proofs"][0]["utxos"][0]
+    # an older document without block hashes, on a node without -txindex: spent or unknown
+    old = json.loads(json.dumps(document))
+    del old["proofs"][0]["utxos"][0]["blockhash"]
+    report = verify_proofs(old, cli, engines=["btclib"])
+    assert (
+        report["ok"]
+        and report["proofs"][0]["utxos"][0]["status"] == "spent_or_unknown"
+        and report["summary"]["utxos_verified_at_snapshot"] == "2/3"
+    )
 
     # a contradiction: the node reports a different amount
     cli = FakeCli(wallet, {a: [(amt + 1, h) for amt, h in coins] for a, coins in funded.items()}, tip=1200)
@@ -314,9 +409,29 @@ def test_core_package_stays_pure():
         assert not forbidden.search(path.read_text()), f"{path} imports chain-facing or audit code"
 
 
-def test_verify_checks_document_consistency_and_wallet_membership(tmp_path, wallet, funded, signer_expressions):
+def test_proofs_omit_the_descriptor_unless_asked(tmp_path, wallet, funded, signer_expressions):
     directory = _signed_bundle(tmp_path, wallet, funded, signer_expressions)
     document = finalize_bundle(directory)
+    assert "descriptor" not in document["wallet"] and document["wallet"]["descriptor_shared"] is False
+    assert (
+        document["wallet"]["policy"] and json.loads((directory / "snapshot.json").read_text())["wallet"]["descriptor"]
+    )  # the owner's copy keeps it
+    assert wallet.to_descriptor() not in json.dumps(document)
+    for xpub in [str(c.xpub) for c in wallet.cosigners]:
+        assert xpub not in json.dumps(document)
+    cli = FakeCli(wallet, funded, tip=1200)
+    report = verify_proofs(document, cli, engines=["btclib"], scan=True)
+    assert report["ok"] and not report["document_problems"] and report["wallet_descriptor_shared"] is False
+    assert all(p["address_in_wallet"] is None for p in report["proofs"])
+    assert report["current_holdings"]["scanned"] == "proven addresses only"
+    assert "descriptor is not shared" in format_report(report)
+    shared = finalize_bundle(directory, with_descriptor=True)
+    assert shared["wallet"]["descriptor"] == wallet.to_descriptor() and "descriptor_shared" not in shared["wallet"]
+
+
+def test_verify_checks_document_consistency_and_wallet_membership(tmp_path, wallet, funded, signer_expressions):
+    directory = _signed_bundle(tmp_path, wallet, funded, signer_expressions)
+    document = finalize_bundle(directory, with_descriptor=True)
     cli = FakeCli(wallet, funded, tip=1200)
     good = verify_proofs(document, cli, engines=["btclib"])
     assert good["ok"] and all(p["address_in_wallet"] for p in good["proofs"]) and good["summary"]["document_consistent"]
@@ -344,7 +459,7 @@ def test_verify_checks_document_consistency_and_wallet_membership(tmp_path, wall
 
 def test_verify_scan_reports_unproven_coins(tmp_path, wallet, funded, signer_expressions):
     directory = _signed_bundle(tmp_path, wallet, funded, signer_expressions)
-    document = finalize_bundle(directory)
+    document = finalize_bundle(directory, with_descriptor=True)
     extra = dict(funded)
     extra[wallet.derive(3).address] = [(7_000_000, 995)]  # funded after the snapshot, never proven
     report = verify_proofs(document, FakeCli(wallet, extra, tip=1200), engines=["btclib"], scan=True)

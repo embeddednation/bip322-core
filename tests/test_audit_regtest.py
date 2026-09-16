@@ -13,7 +13,7 @@ from bip322.dev.signing import sign_psbt
 from bip322.dev.testing import ORIGIN_PATH
 from bip322.psbt import parse_psbt
 from bip322.wallet import Wallet
-from bip322audit.audit import finalize_bundle, format_report, verify_proofs
+from bip322audit.audit import collect_spends, finalize_bundle, format_report, verify_proofs
 from bip322audit.rpc import BitcoinCli
 from bip322audit.snapshot import take_snapshot, write_bundle
 from bip322audit.stamp import parse_stamp
@@ -127,14 +127,22 @@ def test_audit_workflow_on_regtest(core, regtest_wallet, signer_expressions, pri
     assert signed["complete"]
     node.call("sendrawtransaction", signed["hex"])
     miner.call("generatetoaddress", 1, mine_to)
-    report = verify_proofs(document, node, txindex=True)
+    report = verify_proofs(document, node, txindex=False)  # the recorded block hashes make -txindex unnecessary
     statuses = sorted(u["status"] for p in report["proofs"] for u in p["utxos"])
     assert report["ok"] and "spent_after_snapshot" in statuses and report["summary"]["utxos_verified_at_snapshot"] == "3/3"
     assert not report["summary"]["all_utxos_still_unspent"] and report["totals"]["verified_unspent_sat"] < 85_000_000
-    without_index = verify_proofs(document, node, txindex=False)
-    assert without_index["ok"] and "spent_or_unknown" in {u["status"] for p in without_index["proofs"] for u in p["utxos"]}
+    n_spent = statuses.count("spent_after_snapshot")
+    assert 1 <= n_spent <= 2 and report["summary"]["utxos_shown_unspent_at_snapshot"] == f"{3 - n_spent}/3"  # existence shown, unspent-at-snapshot not yet
     text = format_report(report)
     assert "RESULT: OK" in text and "spent_after_snapshot" in text
+    # the owner's wallet knows the spending transaction; with it the auditor shows the outputs were unspent at the stamp
+    spends_doc = collect_spends(watch, document)
+    assert len(spends_doc["spends"]) == n_spent
+    (directory / "spends.json").write_text(json.dumps(spends_doc, indent=2))
+    report = verify_proofs(document, node, spends=spends_doc["spends"])
+    assert report["ok"] and report["summary"]["utxos_shown_unspent_at_snapshot"] == "3/3"
+    assert all(u.get("unspent_at_snapshot") for p in report["proofs"] for u in p["utxos"] if u["status"] == "spent_after_snapshot")
+    assert all(u["spent_height"] > snapshot.stamp.height for p in report["proofs"] for u in p["utxos"] if u.get("spent_height"))
 
     # ---- the CLI, driving the same node through bitcoin-cli ------------------- #
     import bip322audit.cli as audit_cli
@@ -146,4 +154,12 @@ def test_audit_workflow_on_regtest(core, regtest_wallet, signer_expressions, pri
     cfg.write_text(regtest_wallet.to_descriptor() + "\n")
     assert audit_cli.main(["--cli", cli_arg, "-w", "watch", "snapshot", "-d", str(cfg), "--depth", "2", "-o", str(tmp_path / "b3")]) == 0
     assert (tmp_path / "b2" / "snapshot.json").exists()
-    assert audit_cli.main(["--cli", " ".join(core.cli_argv()), "verify", str(directory), "--txindex", "--scan"]) == 0
+    (directory / "spends.json").unlink()
+    assert audit_cli.main(["--cli", cli_arg, "-w", "watch", "spends", str(directory)]) == 0
+    assert len(json.loads((directory / "spends.json").read_text())["spends"]) == n_spent
+    assert (
+        audit_cli.main(["--cli", " ".join(core.cli_argv()), "verify", str(directory), "--scan", "--report", str(tmp_path / "r.json")]) == 0
+    )
+    cli_report = json.loads((tmp_path / "r.json").read_text())
+    assert cli_report["spends_file"].endswith("spends.json") and cli_report["summary"]["utxos_shown_unspent_at_snapshot"] == "3/3"
+    assert cli_report["wallet_descriptor_shared"] is False and cli_report["current_holdings"]["scanned"] == "proven addresses only"

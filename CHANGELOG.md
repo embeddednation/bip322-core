@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.1 (2026-09-16)
+
+- `bip322-audit finalize`: `proofs.json` no longer carries the wallet
+  descriptor (xpubs); `--with-descriptor` includes it. Without it `verify`
+  skips the membership check and `--scan` covers the proven addresses only.
+- `bip322-audit snapshot` records each output's creating block hash, so
+  `verify` confirms spent outputs existed at the snapshot on any node, no
+  `-txindex` needed.
+- `bip322-audit spends`: the owner records, from the node wallet's history,
+  the transaction that spent each snapshot output since; `verify` uses
+  `spends.json` to show those outputs were unspent at the snapshot (a spend
+  confirmed after the stamp block) and flags a spend at or before it.
+- `verify` summary gains `utxos_shown_unspent_at_snapshot`.
+
 ## 0.3.0 (2026-09-15)
 
 - `bip322-audit`: the audit workflow (`snapshot`, `finalize`, `verify`, `stamp`).

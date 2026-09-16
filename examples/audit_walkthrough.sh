@@ -56,7 +56,7 @@ step "5. finalize into proofs.json (combines the partial signatures, self-verifi
 run $AUDIT finalize "$WORK/bundle"
 
 step "6. the auditor verifies against their own node"
-run $AUDIT --cli "$CLI" verify "$WORK/bundle" --txindex --report "$WORK/report.json"
+run $AUDIT --cli "$CLI" verify "$WORK/bundle" --report "$WORK/report.json"
 
 step "7. a coin is spent after the snapshot: reported, the proof of control still stands"
 CHANGE=$(.venv/bin/bip322 -w "$WORK/wallet.desc" --network regtest deriveaddresses 5 --change)
@@ -74,6 +74,10 @@ PY
 )
 SIGNED=$($CLI descriptorprocesspsbt "$FUNDED" "$PRIV" | .venv/bin/python -c "import json,sys;d=json.load(sys.stdin);assert d['complete'];print(d['hex'])")
 $CLI sendrawtransaction "$SIGNED" >/dev/null; $CLI -rpcwallet=miner generatetoaddress 1 "$MINE" >/dev/null
-run $AUDIT --cli "$CLI" verify "$WORK/bundle" --txindex
+run $AUDIT --cli "$CLI" verify "$WORK/bundle"
+
+step "8. the owner records the spend from the node wallet; the auditor now sees the coin was unspent at the snapshot"
+run $AUDIT --cli "$CLI" -w watch spends "$WORK/bundle"
+run $AUDIT --cli "$CLI" verify "$WORK/bundle"
 
 step "done - artifacts in $WORK"

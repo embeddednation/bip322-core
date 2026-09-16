@@ -156,14 +156,26 @@ holds none.
   `message` and `message_hex` agree, every proven address sits at the stated
   branch/index of the declared descriptor), and no listed output is
   contradicted by the node (different amount, address or creation height).
-  Outputs no longer in the UTXO set are reported as spent or unknown; with
-  `--txindex` their existence at the snapshot block is confirmed, but
-  "unspent at the snapshot" cannot be shown without a spend index, and the
-  report says so.
-* **Completeness.** `verify --scan` scans the UTXO set for the *declared
-  descriptor*, not just the proven addresses, and lists funded addresses that
-  no proof covers. A snapshot proves what it lists; the scan is how an auditor
-  sees whether that is everything the wallet holds now.
+  Outputs no longer in the UTXO set are fetched by the block hash the snapshot
+  recorded for their creating transaction (`getrawtransaction TXID true HASH`
+  works on any node), which confirms they existed at the snapshot block with
+  the claimed amount and address. "Unspent at the snapshot" is then shown by
+  the spending transaction: `bip322-audit spends` records it on the owner's
+  side (`listsinceblock` from the stamp block on the node wallet, so no
+  address index anywhere), and `verify` checks that it spends the output and
+  was confirmed after the stamp block. Without `spends.json` the report says
+  existence is shown and unspent-at-snapshot is not; a spend at or before the
+  stamp is a contradiction.
+* **Privacy.** `proofs.json` omits the wallet descriptor by default. The
+  proofs already expose each proven address and, in the witness, its script
+  and child public keys; the xpubs would additionally let the auditor derive
+  every address of the wallet, past and future. `finalize --with-descriptor`
+  opts in, which enables the membership check and the descriptor-wide `--scan`.
+* **Completeness.** With the descriptor shared, `verify --scan` scans the UTXO
+  set for the *declared descriptor*, not just the proven addresses, and lists
+  funded addresses that no proof covers. A snapshot proves what it lists; the
+  scan is how an auditor sees whether that is everything the wallet holds now.
+  Without the descriptor the scan covers the proven addresses only.
 * **Device health check.** `bip322 checksigners` takes the devices' PSBT files,
   shows the script behind the input and its mapping back to the address,
   verifies each cosigner's signature alone, and finalizes and verifies one

@@ -53,8 +53,13 @@ def collect_psbts(directory: Path) -> dict[str, list[BIP322PSBT]]:
     return groups
 
 
-def finalize_bundle(directory: Path, *, lenient: bool = False, engines=None) -> dict:
-    """Combine and finalize the signed PSBTs of every address; return the proofs document."""
+def finalize_bundle(directory: Path, *, lenient: bool = False, engines=None, with_descriptor: bool = False) -> dict:
+    """Combine and finalize the signed PSBTs of every address; return the proofs document.
+
+    The wallet descriptor (xpubs) is left out unless ``with_descriptor`` is set:
+    it would let the auditor derive every address of the wallet, which the
+    proofs do not require.
+    """
     snapshot = load_snapshot(directory)
     groups = collect_psbts(directory)
     message = snapshot["message"].encode("utf-8")
@@ -83,7 +88,46 @@ def finalize_bundle(directory: Path, *, lenient: bool = False, engines=None) -> 
     document = dict(snapshot)
     document.update({"tool": TOOL, "finalized_utc": _now(), "message_hex": message.hex(), "proofs": proofs})
     document.pop("addresses", None)
+    if not with_descriptor:
+        document["wallet"] = {k: v for k, v in (snapshot.get("wallet") or {}).items() if k != "descriptor"}
+        document["wallet"]["descriptor_shared"] = False
     return document
+
+
+# --------------------------------------------------------------------------- #
+# spends: what the owner's wallet knows about outputs spent after the snapshot
+# --------------------------------------------------------------------------- #
+
+
+def collect_spends(cli: BitcoinCli, snapshot: dict) -> dict:
+    """For every snapshot output spent since the stamp block, the spending transaction and its block.
+
+    Uses the node wallet's own history (``listsinceblock`` from the stamp block),
+    so it runs on the owner's side; the auditor then needs no address index:
+    a spend confirmed *after* the stamp block proves the output was unspent at
+    the stamp.
+    """
+    stamp = Stamp.from_dict(snapshot["stamp"])
+    entries = snapshot.get("proofs") or snapshot.get("addresses") or []
+    wanted = {(u["txid"], int(u["vout"])) for p in entries for u in p["utxos"]}
+    since = cli.call("listsinceblock", stamp.hash)
+    spends: dict[str, dict] = {}
+    seen: set[str] = set()
+    for entry in since.get("transactions", []):
+        txid = entry["txid"]
+        if txid in seen or int(entry.get("confirmations", 0)) <= 0:
+            continue
+        seen.add(txid)
+        tx = cli.call("gettransaction", txid, True, True)
+        for vin in tx.get("decoded", {}).get("vin", []):
+            key = (vin.get("txid"), int(vin.get("vout", -1)))
+            if key in wanted:
+                spends[f"{key[0]}:{key[1]}"] = {"spent_by": txid, "blockhash": tx["blockhash"], "height": int(tx["blockheight"])}
+    return {"tool": TOOL, "collected_utc": _now(), "stamp": stamp.to_dict(), "spends": spends}
+
+
+def load_spends(path: Path) -> dict:
+    return json.loads(path.read_text()).get("spends", {})
 
 
 # --------------------------------------------------------------------------- #
@@ -91,12 +135,26 @@ def finalize_bundle(directory: Path, *, lenient: bool = False, engines=None) -> 
 # --------------------------------------------------------------------------- #
 
 
-def _check_utxo(cli: BitcoinCli, tip_height: int, stamp: Stamp, address: str, utxo: dict, *, txindex: bool) -> dict:
+def _creating_tx(cli: BitcoinCli, utxo: dict, *, txindex: bool):
+    """The transaction that created the output: by recorded block hash (no index needed) or via -txindex."""
+    if utxo.get("blockhash"):
+        return cli.call("getrawtransaction", utxo["txid"], True, utxo["blockhash"]), cli.block_header(utxo["blockhash"])
+    if txindex:
+        tx = cli.call("getrawtransaction", utxo["txid"], True)
+        return tx, (cli.block_header(tx["blockhash"]) if tx.get("blockhash") else None)
+    return None, None
+
+
+def _check_utxo(
+    cli: BitcoinCli, tip_height: int, stamp: Stamp, address: str, utxo: dict, *, txindex: bool, spends: dict | None = None
+) -> dict:
     """One listed output against the node.
 
     ``verified``: the node confirms it existed at the snapshot block with the claimed
     amount and address.  ``contradiction``: the node shows something that disagrees
     with the claim.  Neither: the output is gone and this node cannot say more.
+    For a spent output, ``unspent_at_snapshot`` becomes True when the spending
+    transaction (from spends.json) is confirmed after the stamp block.
     """
     row = {**utxo, "status": "unknown", "verified": False, "contradiction": False}
     out = cli.call("gettxout", utxo["txid"], int(utxo["vout"]), False)
@@ -122,35 +180,69 @@ def _check_utxo(cli: BitcoinCli, tip_height: int, stamp: Stamp, address: str, ut
         if not matches:
             row["problem"] = "amount, address or creation height differs from the snapshot"
         return row
-    if txindex:
-        try:
-            tx = cli.call("getrawtransaction", utxo["txid"], True)
-            header = cli.block_header(tx["blockhash"]) if tx.get("blockhash") else None
-        except RpcError as exc:
-            row["status"] = "spent_or_unknown"
-            row["note"] = f"getrawtransaction: {exc}"
-            return row
-        if header:
-            created = int(header["height"])
-            row["created_height"] = created
-            if created == utxo["height"] and created <= stamp.height:
-                row["status"] = "spent_after_snapshot"
-                row["verified"] = True
-                row["note"] = (
-                    "existed at the snapshot block and has been spent since (that it was unspent at the snapshot cannot be shown without a spend index)"
-                )
-            else:
-                row["status"] = "created_after_snapshot"
-                row["contradiction"] = True
-                row["problem"] = "the creating transaction was confirmed after the snapshot block"
-            return row
-    row["status"] = "spent_or_unknown"
-    row["note"] = "not in the UTXO set now; --txindex on a node with -txindex can confirm it existed at the snapshot block"
+    try:
+        tx, header = _creating_tx(cli, utxo, txindex=txindex)
+    except RpcError as exc:
+        row["status"] = "spent_or_unknown"
+        row["note"] = f"cannot fetch the creating transaction: {exc}"
+        return row
+    if tx is None or header is None:
+        row["status"] = "spent_or_unknown"
+        row["note"] = "not in the UTXO set now; the snapshot carries no block hash for it and this node has no -txindex"
+        return row
+    created = int(header["height"])
+    row["created_height"] = created
+    outputs = tx.get("vout", [])
+    out = outputs[utxo["vout"]] if utxo["vout"] < len(outputs) else None
+    matches = (
+        out is not None
+        and to_sat(out["value"]) == utxo["amount_sat"]
+        and out.get("scriptPubKey", {}).get("address") == address
+        and created == utxo["height"]
+        and created <= stamp.height
+    )
+    if not matches:
+        row["status"] = "created_after_snapshot" if created > stamp.height else "mismatch"
+        row["contradiction"] = True
+        row["problem"] = "the creating transaction does not match the snapshot (amount, address or block)"
+        return row
+    row["status"] = "spent_after_snapshot"
+    row["verified"] = True
+    spend = (spends or {}).get(f"{utxo['txid']}:{utxo['vout']}")
+    if not spend:
+        row["note"] = (
+            "existed at the snapshot block and has been spent since; add spends.json (bip322-audit spends) to show it was unspent at the snapshot"
+        )
+        return row
+    try:
+        spending = cli.call("getrawtransaction", spend["spent_by"], True, spend["blockhash"])
+        spend_header = cli.block_header(spend["blockhash"])
+    except RpcError as exc:
+        row["note"] = f"spends.json names {spend['spent_by'][:16]}... but the node cannot fetch it: {exc}"
+        return row
+    spends_it = any(v.get("txid") == utxo["txid"] and int(v.get("vout", -1)) == utxo["vout"] for v in spending.get("vin", []))
+    spend_height = int(spend_header["height"])
+    if spends_it and int(spend_header.get("confirmations", 0)) > 0 and spend_height > stamp.height:
+        row["unspent_at_snapshot"] = True
+        row["spent_by"] = spend["spent_by"]
+        row["spent_height"] = spend_height
+        row["note"] = f"spent at height {spend_height}, after the snapshot block {stamp.height}: it was unspent at the snapshot"
+    elif spends_it:
+        row["contradiction"] = True
+        row["verified"] = False
+        row["problem"] = f"spent at height {spend_height}, at or before the snapshot block {stamp.height}"
+    else:
+        row["note"] = "spends.json names a transaction that does not spend this output"
     return row
 
 
-def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txindex: bool = False, scan: bool = False) -> dict:
-    """Verify a proofs document; ``cli=None`` verifies only what needs no node."""
+def verify_proofs(
+    document: dict, cli: BitcoinCli | None, *, engines=None, txindex: bool = False, scan: bool = False, spends: dict | None = None
+) -> dict:
+    """Verify a proofs document; ``cli=None`` verifies only what needs no node.
+
+    ``spends`` (from spends.json) lets spent outputs be shown unspent at the snapshot.
+    """
     engines = list(engines or available_engines())
     message = bytes.fromhex(document["message_hex"]) if document.get("message_hex") else document["message"].encode("utf-8")
     if document.get("message_hex") and document.get("message") is not None and message != document["message"].encode("utf-8"):
@@ -168,6 +260,7 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
     if stamp is not None and document.get("stamp") and Stamp.from_dict(document["stamp"]) != stamp:
         report["document_problems"].append("the stamp recorded in proofs.json differs from the stamp inside the signed message")
     wallet = _document_wallet(document, report)
+    report["wallet_descriptor_shared"] = wallet is not None
 
     if cli is not None:
         chain = cli.chain()
@@ -208,7 +301,7 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
         claimed += proof["total_sat"]
         if cli is not None and stamp is not None:
             for utxo in proof["utxos"]:
-                checked = _check_utxo(cli, tip_height, stamp, address, utxo, txindex=txindex)
+                checked = _check_utxo(cli, tip_height, stamp, address, utxo, txindex=txindex, spends=spends)
                 row["utxos"].append(checked)
                 total_count += 1
                 verified_count += int(checked["verified"])
@@ -224,6 +317,12 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
 
     if cli is not None and scan:
         report["current_holdings"] = _scan_now(cli, document, wallet)
+    unspent_at_snapshot = sum(
+        1
+        for p in report["proofs"]
+        for u in p["utxos"]
+        if u.get("status") == "unspent" and u.get("verified") or u.get("unspent_at_snapshot")
+    )
 
     stamp_ok = bool(report["stamp"] and report["stamp"].get("ok"))
     online = cli is not None
@@ -239,6 +338,7 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
         "utxos_verified_at_snapshot": f"{verified_count}/{total_count}" if online else None,
         "contradictions": contradictions if online else None,
         "all_utxos_still_unspent": (unspent == claimed) if online else None,
+        "utxos_shown_unspent_at_snapshot": f"{unspent_at_snapshot}/{total_count}" if online else None,
     }
     # the proof of control stands when the signatures and the stamp check out, the document is consistent with
     # itself and its wallet, and the node contradicts nothing; outputs spent since the snapshot are reported
@@ -340,10 +440,12 @@ def format_report(report: dict) -> str:
         lines.append(f"{p['address']}  (branch {p['branch']}, index {p['index']})  bip322: {v['state'].upper()}")
         for u in p["utxos"]:
             mark = "ok" if u.get("verified") else ("!!" if u.get("contradiction") else "--")
-            lines.append(
-                f"    [{mark}] {u['txid'][:16]}...:{u['vout']}  {btc(u['amount_sat']):>14} BTC  {u['status']}"
-                + (f"  ({u['problem']})" if u.get("problem") else "")
+            detail = (
+                f"  ({u['problem']})"
+                if u.get("problem")
+                else (f"  (spent at {u['spent_height']}, unspent at snapshot)" if u.get("unspent_at_snapshot") else "")
             )
+            lines.append(f"    [{mark}] {u['txid'][:16]}...:{u['vout']}  {btc(u['amount_sat']):>14} BTC  {u['status']}{detail}")
         lines.append(f"    claimed {btc(p['claimed_sat'])} BTC" + (f", unspent now {btc(p['unspent_now_sat'])} BTC" if node else ""))
     lines.append("")
     t = report["totals"]
@@ -361,9 +463,15 @@ def format_report(report: dict) -> str:
                 lines.append(f"     {a}  {btc(v)} BTC")
     for problem in report.get("document_problems", []):
         lines.append(f"!! document: {problem}")
+    if report.get("wallet_descriptor_shared") is False:
+        lines.append(
+            "note: the wallet descriptor is not shared; address membership not checked and --scan covers the proven addresses only"
+        )
     s = report["summary"]
     lines.append(
-        f"proofs valid: {s['proofs_valid']}; stamp ok: {s['stamp_ok']}; document consistent: {s['document_consistent']}; outputs verified at snapshot: {s['utxos_verified_at_snapshot']}; contradictions: {s['contradictions']}; all still unspent: {s['all_utxos_still_unspent']}"
+        f"proofs valid: {s['proofs_valid']}; stamp ok: {s['stamp_ok']}; document consistent: {s['document_consistent']}; "
+        f"outputs existed at snapshot: {s['utxos_verified_at_snapshot']}; shown unspent at snapshot: {s['utxos_shown_unspent_at_snapshot']}; "
+        f"contradictions: {s['contradictions']}; all still unspent: {s['all_utxos_still_unspent']}"
     )
     lines.append("RESULT: " + ("OK" if report["ok"] else "FAILED"))
     return "\n".join(lines)

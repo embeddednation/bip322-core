@@ -36,13 +36,14 @@ class Utxo:
     vout: int
     amount_sat: int
     height: int  # block that created it
+    blockhash: str | None = None  # that block's hash: lets a verifier fetch the creating tx without -txindex
 
     def to_dict(self) -> dict:
-        return {"txid": self.txid, "vout": self.vout, "amount_sat": self.amount_sat, "height": self.height}
+        return {"txid": self.txid, "vout": self.vout, "amount_sat": self.amount_sat, "height": self.height, "blockhash": self.blockhash}
 
     @classmethod
     def from_dict(cls, d: dict) -> Utxo:
-        return cls(str(d["txid"]), int(d["vout"]), int(d["amount_sat"]), int(d["height"]))
+        return cls(str(d["txid"]), int(d["vout"]), int(d["amount_sat"]), int(d["height"]), d.get("blockhash"))
 
 
 @dataclass
@@ -95,7 +96,9 @@ def coins_from_listunspent(cli: BitcoinCli, wallet: Wallet, stamp: Stamp, tip_he
         height = tip_height - int(e["confirmations"]) + 1
         if height > stamp.height:
             continue
-        by_address.setdefault(address, AddressCoins(derived)).utxos.append(Utxo(e["txid"], int(e["vout"]), to_sat(e["amount"]), height))
+        by_address.setdefault(address, AddressCoins(derived)).utxos.append(
+            Utxo(e["txid"], int(e["vout"]), to_sat(e["amount"]), height, cli.block_hash(height))
+        )
     return _sorted(by_address)
 
 
@@ -113,8 +116,9 @@ def coins_from_scantxoutset(cli: BitcoinCli, wallet: Wallet, stamp: Stamp, *, sc
         derived = _locate(wallet, address, u.get("desc"), scan_range) if address else None
         if derived is None:
             continue
+        height = int(u["height"])
         by_address.setdefault(derived.address, AddressCoins(derived)).utxos.append(
-            Utxo(u["txid"], int(u["vout"]), to_sat(u["amount"]), int(u["height"]))
+            Utxo(u["txid"], int(u["vout"]), to_sat(u["amount"]), height, cli.block_hash(height))
         )
     return _sorted(by_address)
 

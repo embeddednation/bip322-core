@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bip322"
-version = "0.3.0"
+version = "0.3.1"
 description = "BIP-322 (simple / full) message signing tooling for P2WSH multisig quorums: PSBT creation, finalization and verification"
 requires-python = ">=3.10"
 dependencies = [
