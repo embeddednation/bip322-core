@@ -37,9 +37,9 @@ def _now() -> str:
 
 
 def collect_psbts(directory: Path) -> dict[str, list[BIP322PSBT]]:
-    """Every parseable PSBT in the bundle and its ``signed/`` folder, grouped by to_sign txid."""
+    """Every parseable PSBT in ``to_sign/`` and ``signed/`` (and the bundle root), grouped by to_sign txid."""
     groups: dict[str, list[BIP322PSBT]] = {}
-    for folder in (directory, directory / "signed"):
+    for folder in (directory, directory / "to_sign", directory / "signed"):
         if not folder.is_dir():
             continue
         for path in sorted(folder.iterdir()):
@@ -53,12 +53,17 @@ def collect_psbts(directory: Path) -> dict[str, list[BIP322PSBT]]:
     return groups
 
 
-def finalize_bundle(directory: Path, *, lenient: bool = False, engines=None, with_descriptor: bool = False) -> dict:
+def finalize_bundle(
+    directory: Path, *, lenient: bool = False, engines=None, with_descriptor: bool = False, cli: BitcoinCli | None = None
+) -> dict:
     """Combine and finalize the signed PSBTs of every address; return the proofs document.
 
     The wallet descriptor (xpubs) is left out unless ``with_descriptor`` is set:
     it would let the auditor derive every address of the wallet, which the
-    proofs do not require.
+    proofs do not require.  With ``cli`` (the node wallet the coins came from)
+    the document also records which listed outputs have been spent since the
+    snapshot and by what, so that a verifier can show they were unspent at the
+    snapshot; re-running finalize refreshes that.
     """
     snapshot = load_snapshot(directory)
     groups = collect_psbts(directory)
@@ -91,6 +96,13 @@ def finalize_bundle(directory: Path, *, lenient: bool = False, engines=None, wit
     if not with_descriptor:
         document["wallet"] = {k: v for k, v in (snapshot.get("wallet") or {}).items() if k != "descriptor"}
         document["wallet"]["descriptor_shared"] = False
+    if cli is not None:
+        spends = collect_spends(cli, snapshot)
+        document["spends"] = spends["spends"]
+        document["spends_utc"] = spends["collected_utc"]
+    else:
+        document["spends"] = None
+        document["spends_utc"] = None
     return document
 
 
@@ -126,10 +138,6 @@ def collect_spends(cli: BitcoinCli, snapshot: dict) -> dict:
     return {"tool": TOOL, "collected_utc": _now(), "stamp": stamp.to_dict(), "spends": spends}
 
 
-def load_spends(path: Path) -> dict:
-    return json.loads(path.read_text()).get("spends", {})
-
-
 # --------------------------------------------------------------------------- #
 # verify
 # --------------------------------------------------------------------------- #
@@ -154,7 +162,7 @@ def _check_utxo(
     amount and address.  ``contradiction``: the node shows something that disagrees
     with the claim.  Neither: the output is gone and this node cannot say more.
     For a spent output, ``unspent_at_snapshot`` becomes True when the spending
-    transaction (from spends.json) is confirmed after the stamp block.
+    transaction (recorded in the document by finalize) is confirmed after the stamp block.
     """
     row = {**utxo, "status": "unknown", "verified": False, "contradiction": False}
     out = cli.call("gettxout", utxo["txid"], int(utxo["vout"]), False)
@@ -211,14 +219,14 @@ def _check_utxo(
     spend = (spends or {}).get(f"{utxo['txid']}:{utxo['vout']}")
     if not spend:
         row["note"] = (
-            "existed at the snapshot block and has been spent since; add spends.json (bip322-audit spends) to show it was unspent at the snapshot"
+            "existed at the snapshot block and has been spent since; re-run bip322-audit finalize on the owner's node to record the spend and show it was unspent at the snapshot"
         )
         return row
     try:
         spending = cli.call("getrawtransaction", spend["spent_by"], True, spend["blockhash"])
         spend_header = cli.block_header(spend["blockhash"])
     except RpcError as exc:
-        row["note"] = f"spends.json names {spend['spent_by'][:16]}... but the node cannot fetch it: {exc}"
+        row["note"] = f"the document names the spend {spend['spent_by'][:16]}... but the node cannot fetch it: {exc}"
         return row
     spends_it = any(v.get("txid") == utxo["txid"] and int(v.get("vout", -1)) == utxo["vout"] for v in spending.get("vin", []))
     spend_height = int(spend_header["height"])
@@ -232,17 +240,13 @@ def _check_utxo(
         row["verified"] = False
         row["problem"] = f"spent at height {spend_height}, at or before the snapshot block {stamp.height}"
     else:
-        row["note"] = "spends.json names a transaction that does not spend this output"
+        row["note"] = "the document names a spending transaction that does not spend this output"
     return row
 
 
-def verify_proofs(
-    document: dict, cli: BitcoinCli | None, *, engines=None, txindex: bool = False, scan: bool = False, spends: dict | None = None
-) -> dict:
-    """Verify a proofs document; ``cli=None`` verifies only what needs no node.
-
-    ``spends`` (from spends.json) lets spent outputs be shown unspent at the snapshot.
-    """
+def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txindex: bool = False, scan: bool = False) -> dict:
+    """Verify a proofs document; ``cli=None`` verifies only what needs no node."""
+    spends = document.get("spends") or {}
     engines = list(engines or available_engines())
     message = bytes.fromhex(document["message_hex"]) if document.get("message_hex") else document["message"].encode("utf-8")
     if document.get("message_hex") and document.get("message") is not None and message != document["message"].encode("utf-8"):
@@ -261,6 +265,7 @@ def verify_proofs(
         report["document_problems"].append("the stamp recorded in proofs.json differs from the stamp inside the signed message")
     wallet = _document_wallet(document, report)
     report["wallet_descriptor_shared"] = wallet is not None
+    report["spends_recorded_utc"] = document.get("spends_utc")
 
     if cli is not None:
         chain = cli.chain()

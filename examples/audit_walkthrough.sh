@@ -46,14 +46,14 @@ run $AUDIT --cli "$CLI" -w watch snapshot --text "Annual audit {date}" -o "$WORK
 cat "$WORK/bundle/message.txt"; echo; ls "$WORK/bundle"
 
 step "4. cosigners A and C sign every PSBT (Coldcards in real life), results go to bundle/signed/"
-for P in "$WORK"/bundle/*.psbt; do
+for P in "$WORK"/bundle/to_sign/*.psbt; do
   N=$(basename "$P" .psbt)
   $DEV signpsbt "$P" "$WORK/cosigner-A.json" -o "$WORK/bundle/signed/$N-ccA-part.psbt"
   $DEV signpsbt "$P" "$WORK/cosigner-C.json" -o "$WORK/bundle/signed/$N-ccC-part.psbt"
 done
 
-step "5. finalize into proofs.json (combines the partial signatures, self-verifies)"
-run $AUDIT finalize "$WORK/bundle"
+step "5. finalize into proofs.json (combines the partial signatures, self-verifies, records spends since the snapshot: none yet)"
+run $AUDIT --cli "$CLI" finalize "$WORK/bundle"
 
 step "6. the auditor verifies against their own node"
 run $AUDIT --cli "$CLI" verify "$WORK/bundle" --report "$WORK/report.json"
@@ -76,8 +76,8 @@ SIGNED=$($CLI descriptorprocesspsbt "$FUNDED" "$PRIV" | .venv/bin/python -c "imp
 $CLI sendrawtransaction "$SIGNED" >/dev/null; $CLI -rpcwallet=miner generatetoaddress 1 "$MINE" >/dev/null
 run $AUDIT --cli "$CLI" verify "$WORK/bundle"
 
-step "8. the owner records the spend from the node wallet; the auditor now sees the coin was unspent at the snapshot"
-run $AUDIT --cli "$CLI" -w watch spends "$WORK/bundle"
+step "8. the owner re-runs finalize: proofs.json now records the spend, and the auditor sees the coin was unspent at the snapshot"
+run $AUDIT --cli "$CLI" finalize "$WORK/bundle"
 run $AUDIT --cli "$CLI" verify "$WORK/bundle"
 
 step "done - artifacts in $WORK"

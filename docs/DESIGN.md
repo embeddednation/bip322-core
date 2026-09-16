@@ -160,12 +160,13 @@ holds none.
   recorded for their creating transaction (`getrawtransaction TXID true HASH`
   works on any node), which confirms they existed at the snapshot block with
   the claimed amount and address. "Unspent at the snapshot" is then shown by
-  the spending transaction: `bip322-audit spends` records it on the owner's
-  side (`listsinceblock` from the stamp block on the node wallet, so no
-  address index anywhere), and `verify` checks that it spends the output and
-  was confirmed after the stamp block. Without `spends.json` the report says
-  existence is shown and unspent-at-snapshot is not; a spend at or before the
-  stamp is a contradiction.
+  the spending transaction: `finalize` records it on the owner's side
+  (`listsinceblock` from the stamp block on the node wallet named in
+  `snapshot.json`, so no address index anywhere), and `verify` checks that it
+  spends the output and was confirmed after the stamp block. Re-running
+  `finalize` refreshes the record; the proofs are unchanged. Without it the
+  report says existence is shown and unspent-at-snapshot is not; a spend at
+  or before the stamp is a contradiction.
 * **Privacy.** `proofs.json` omits the wallet descriptor by default. The
   proofs already expose each proven address and, in the witness, its script
   and child public keys; the xpubs would additionally let the auditor derive

@@ -208,6 +208,7 @@ class Snapshot:
     policy: str
     addresses: list[dict]
     source: str
+    node_wallet: str | None = None  # the node wallet the coins came from; finalize asks it for the spend history
 
     @property
     def total_sat(self) -> int:
@@ -223,6 +224,7 @@ class Snapshot:
             "message": self.message,
             "wallet": {"descriptor": self.wallet_descriptor, "policy": self.policy},
             "source": self.source,
+            "node_wallet": self.node_wallet,
             "addresses": self.addresses,
             "total_sat": self.total_sat,
             "total_btc": btc(self.total_sat),
@@ -257,13 +259,16 @@ def take_snapshot(
     lint = lint_message_for_coldcard(message.encode("utf-8"))
     if lint and coldcard_strict:
         raise ValueError("message would be refused by a Coldcard: " + "; ".join(lint))
-    if source == "auto":
+    node_wallet = None
+    if source in ("auto", "listunspent"):
         # a node with exactly one wallet loaded answers listunspent without -rpcwallet; only fall
         # back to the (minutes-long) UTXO-set scan when the node has no wallet to ask
         try:
-            cli.call("getwalletinfo")
+            node_wallet = str(cli.call("getwalletinfo")["walletname"])
             source = "listunspent"
         except RpcError as exc:
+            if source == "listunspent":
+                raise
             if progress:
                 progress(f"no wallet available ({exc}); scanning the UTXO set for the descriptor instead")
             source = "scantxoutset"
@@ -304,17 +309,18 @@ def take_snapshot(
         policy=f"{wallet.threshold} of {len(wallet.cosigners)}",
         addresses=addresses,
         source=source,
+        node_wallet=node_wallet,
     )
     return snapshot, psbts
 
 
 def psbt_file_name(sequence: int, derived: DerivedAddress) -> str:  # noqa: ARG001 - the address lives in snapshot.json
-    """``to_sign-01.psbt``: what the file is (the BIP-322 to_sign transaction to sign), short on a device screen."""
-    return f"to_sign-{sequence:02d}.psbt"
+    """``to_sign/to_sign-01.psbt``: what the file is (the BIP-322 to_sign transaction to sign), short on a device screen."""
+    return f"to_sign/to_sign-{sequence:02d}.psbt"
 
 
 def write_bundle(directory: Path, snapshot: Snapshot, psbts: dict[str, object]) -> list[Path]:
-    """``snapshot.json``, ``message.txt`` and one short-named ``.psbt`` per address; returns the written paths."""
+    """``snapshot.json``, ``message.txt``, ``to_sign/`` with one PSBT per address, an empty ``signed/``; returns the written paths."""
     directory.mkdir(parents=True, exist_ok=True)
     written = []
     path = directory / "snapshot.json"
@@ -325,7 +331,8 @@ def write_bundle(directory: Path, snapshot: Snapshot, psbts: dict[str, object]) 
     written.append(path)
     names = {a["address"]: a["file"] for a in snapshot.addresses}
     for address, psbt in psbts.items():
-        path = directory / names.get(address, f"{address}.psbt")
+        path = directory / names.get(address, f"to_sign/{address}.psbt")
+        path.parent.mkdir(exist_ok=True)
         path.write_text(psbt.to_string() + "\n")
         written.append(path)
     (directory / "signed").mkdir(exist_ok=True)

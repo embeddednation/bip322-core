@@ -250,14 +250,16 @@ def _signed_bundle(tmp_path, wallet, funded, signer_expressions, cli=None) -> Pa
     directory = tmp_path / "bundle"
     written = write_bundle(directory, snapshot, psbts)
     assert (directory / "snapshot.json").exists() and (directory / "message.txt").read_bytes() == snapshot.message.encode()
-    assert len([p for p in written if p.suffix == ".psbt"]) == 2 and (directory / "signed").is_dir()
+    assert len([p for p in written if p.suffix == ".psbt"]) == 2 and (directory / "signed").is_dir() and (directory / "to_sign").is_dir()
     files = {a["address"]: a["file"] for a in snapshot.addresses}
-    assert sorted(files.values()) == ["to_sign-01.psbt", "to_sign-02.psbt"]
+    assert sorted(files.values()) == ["to_sign/to_sign-01.psbt", "to_sign/to_sign-02.psbt"]
+    assert sorted(p.name for p in (directory / "to_sign").iterdir()) == ["to_sign-01.psbt", "to_sign-02.psbt"]
+    assert snapshot.node_wallet == "watch" and json.loads((directory / "snapshot.json").read_text())["node_wallet"] == "watch"
     for address in funded:
         for i, signer in enumerate(signer_expressions[:2]):  # two cosigners, parallel signing
             psbt = parse_psbt((directory / files[address]).read_text())
             assert sign_psbt(psbt, signer) == 1
-            (directory / "signed" / files[address].replace(".psbt", f"-cc{i}-part.psbt")).write_text(psbt.to_string() + "\n")
+            (directory / "signed" / Path(files[address]).name.replace(".psbt", f"-cc{i}-part.psbt")).write_text(psbt.to_string() + "\n")
     return directory
 
 
@@ -292,7 +294,8 @@ def test_finalize_and_verify_with_fake_node(tmp_path, wallet, funded, signer_exp
     report = verify_proofs(document, cli, engines=["btclib"])
     assert report["ok"] and report["summary"]["utxos_verified_at_snapshot"] == "3/3" and not report["summary"]["all_utxos_still_unspent"]
     row = report["proofs"][0]["utxos"][0]
-    assert row["status"] == "spent_after_snapshot" and row["verified"] and "unspent_at_snapshot" not in row and "spends.json" in row["note"]
+    assert row["status"] == "spent_after_snapshot" and row["verified"] and "unspent_at_snapshot" not in row and "finalize" in row["note"]
+    assert document["spends"] is None  # finalized without a node
     assert report["summary"]["utxos_shown_unspent_at_snapshot"] == "2/3" and report["totals"]["verified_unspent_sat"] == 35_000_000
     # spends.json from the owner's wallet: the spend is confirmed after the stamp block, so it was unspent at the snapshot
     spends_doc = collect_spends(cli, document)
@@ -302,7 +305,10 @@ def test_finalize_and_verify_with_fake_node(tmp_path, wallet, funded, signer_exp
         "blockhash": fake_hash(1150),
         "height": 1150,
     }
-    report = verify_proofs(document, cli, engines=["btclib"], spends=spends_doc["spends"])
+    refreshed = finalize_bundle(directory, cli=cli)  # re-run on the owner's node: the spend goes into proofs.json
+    assert refreshed["spends"] == spends_doc["spends"] and refreshed["spends_utc"] and refreshed["proofs"] == document["proofs"]
+    report = verify_proofs(refreshed, cli, engines=["btclib"])
+    assert report["spends_recorded_utc"] == refreshed["spends_utc"]
     row = report["proofs"][0]["utxos"][0]
     assert (
         report["ok"]
@@ -314,16 +320,18 @@ def test_finalize_and_verify_with_fake_node(tmp_path, wallet, funded, signer_exp
     # a spend at or before the stamp block contradicts the claim
     early = FakeCli(wallet, funded, tip=1200, spent={outpoint: 990})
     assert collect_spends(early, document)["spends"] == {}  # listsinceblock(stamp) never lists it; a forged spends.json might
-    forged = {f"{utxo['txid']}:{utxo['vout']}": {"spent_by": early.spend_txid(*outpoint), "blockhash": fake_hash(990), "height": 990}}
-    report = verify_proofs(document, early, engines=["btclib"], spends=forged)
-    assert not report["ok"] and report["proofs"][0]["utxos"][0]["contradiction"] and report["summary"]["contradictions"] == 1
-    # spends.json naming a transaction that does not spend the output proves nothing
-    report = verify_proofs(
+    forged = dict(
         document,
-        cli,
-        engines=["btclib"],
+        spends={f"{utxo['txid']}:{utxo['vout']}": {"spent_by": early.spend_txid(*outpoint), "blockhash": fake_hash(990), "height": 990}},
+    )
+    report = verify_proofs(forged, early, engines=["btclib"])
+    assert not report["ok"] and report["proofs"][0]["utxos"][0]["contradiction"] and report["summary"]["contradictions"] == 1
+    # a recorded spend that does not spend the output proves nothing
+    wrong = dict(
+        document,
         spends={f"{utxo['txid']}:{utxo['vout']}": {"spent_by": cli.spend_txid("ab" * 32, 0), "blockhash": fake_hash(1150), "height": 1150}},
     )
+    report = verify_proofs(wrong, cli, engines=["btclib"])
     assert report["ok"] and "unspent_at_snapshot" not in report["proofs"][0]["utxos"][0]
     # an older document without block hashes, on a node without -txindex: spent or unknown
     old = json.loads(json.dumps(document))
@@ -388,7 +396,7 @@ def test_cli_end_to_end_with_fake_node(tmp_path, wallet, funded, signer_expressi
         psbt = parse_psbt((out_dir / files[address]).read_text())
         for signer in signer_expressions[:2]:
             sign_psbt(psbt, signer)
-        (out_dir / "signed" / files[address].replace(".psbt", "-signed.psbt")).write_text(psbt.to_string())
+        (out_dir / "signed" / Path(files[address]).name.replace(".psbt", "-signed.psbt")).write_text(psbt.to_string())
     assert audit_cli.main(["finalize", str(out_dir)]) == 0
     assert capsys.readouterr().out.strip() == str(out_dir / "proofs.json")
     assert audit_cli.main(["verify", str(out_dir), "--report", str(tmp_path / "r.json")]) == 0

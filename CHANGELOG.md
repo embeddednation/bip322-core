@@ -8,11 +8,13 @@
 - `bip322-audit snapshot` records each output's creating block hash, so
   `verify` confirms spent outputs existed at the snapshot on any node, no
   `-txindex` needed.
-- `bip322-audit spends`: the owner records, from the node wallet's history,
-  the transaction that spent each snapshot output since; `verify` uses
-  `spends.json` to show those outputs were unspent at the snapshot (a spend
-  confirmed after the stamp block) and flags a spend at or before it.
+- `bip322-audit finalize` records, from the node wallet's history (the wallet
+  is remembered in `snapshot.json`), the transaction that spent each snapshot
+  output since; `verify` uses it to show those outputs were unspent at the
+  snapshot (a spend confirmed after the stamp block) and flags a spend at or
+  before it. Re-run `finalize` to refresh; `--offline` skips the node.
 - `verify` summary gains `utxos_shown_unspent_at_snapshot`.
+- Bundle layout: the PSBTs to sign live in `to_sign/`, signed ones in `signed/`.
 
 ## 0.3.0 (2026-09-15)
 

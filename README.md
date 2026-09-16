@@ -171,13 +171,17 @@ For "we controlled these coins as of block N", repeatable whenever coins move:
 
 ```sh
 bip322-audit -w treasury snapshot --text "Annual audit {date}"      # the node wallet's own descriptor
-#   -> snapshot-2026-09-14-912345/: snapshot.json, message.txt, to_sign-01.psbt ... one per funded address
+#   -> snapshot-2026-09-14-912345/: snapshot.json, message.txt, to_sign/to_sign-01.psbt ... one per funded address
 #   sign every PSBT on two Coldcards, put the results into snapshot-.../signed/
 bip322-audit finalize snapshot-2026-09-14-912345           # -> proofs.json (hand this to the auditor)
 bip322-audit verify snapshot-2026-09-14-912345 --report audit-report.json
-# months later, if coins have moved since the snapshot:
-bip322-audit -w treasury spends snapshot-2026-09-14-912345  # -> spends.json (hand this over too)
 ```
+
+`finalize` also asks the node wallet the coins came from (recorded in
+`snapshot.json`) which listed outputs have been spent since, and records the
+spending transactions in `proofs.json`. If coins move between the snapshot and
+the audit, re-run `finalize` before handing `proofs.json` over; the proofs
+themselves do not change. `--offline` skips that step.
 
 `snapshot` reads the wallet's descriptor from the node wallet (`-w NAME`,
 `listdescriptors`; `--descriptor FILE` overrides and is cross-checked against
@@ -207,11 +211,10 @@ the stamp. An output spent since is fetched by the block hash the snapshot
 recorded (no `-txindex` needed): that shows it existed at the stamp with the
 claimed amount and address. Whether it was still *unspent* at the stamp needs
 the spending transaction, which only an address index or the owner's wallet
-knows; `bip322-audit spends` writes it into `spends.json` from the node
-wallet's history, and `verify` (which picks the file up next to
-`proofs.json`, or via `--spends`) checks that it really spends the output and
-was confirmed after the stamp block. A spend at or before the stamp is a
-contradiction. With the descriptor shared, `verify` also checks that every
+knows; `finalize` records it in `proofs.json` from the node wallet's history
+(`listsinceblock` from the stamp block), and `verify` checks that it really
+spends the output and was confirmed after the stamp block. A spend at or
+before the stamp is a contradiction. With the descriptor shared, `verify` also checks that every
 proven address sits at its stated index, and `--scan` scans the UTXO set for
 the whole descriptor and lists funded addresses no proof covers, the
 completeness check; without it, `--scan` covers the proven addresses only and

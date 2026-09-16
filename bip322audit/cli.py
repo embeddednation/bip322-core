@@ -13,9 +13,9 @@ from bip322.core import BIP322Error
 from bip322.wallet import Wallet, wallet_from_file
 
 from . import TOOL
-from .audit import AuditError, collect_spends, finalize_bundle, format_report, load_proofs, load_spends, verify_proofs
+from .audit import AuditError, finalize_bundle, format_report, load_proofs, verify_proofs
 from .rpc import BitcoinCli, RpcError, btc
-from .snapshot import DEFAULT_DEPTH, check_wallet_against_node, take_snapshot, wallet_from_node, write_bundle
+from .snapshot import DEFAULT_DEPTH, check_wallet_against_node, load_snapshot, take_snapshot, wallet_from_node, write_bundle
 from .stamp import fetch_stamp
 
 DEFAULT_TEMPLATE = "Proof of control {date}"
@@ -99,7 +99,24 @@ def cmd_snapshot(args) -> int:
 
 def cmd_finalize(args) -> int:
     directory = Path(args.directory)
-    document = finalize_bundle(directory, lenient=args.lenient, with_descriptor=args.with_descriptor)
+    snapshot = load_snapshot(directory)
+    cli = None
+    if args.offline:
+        print("offline: the spend history is not recorded; spent outputs cannot be shown unspent at the snapshot", file=sys.stderr)
+    elif not (_opt(args, "wallet") or snapshot.get("node_wallet")):
+        print("no node wallet known for this snapshot (it came from a UTXO-set scan); the spend history is not recorded", file=sys.stderr)
+    else:
+        cli = BitcoinCli(_opt(args, "cli") or "bitcoin-cli")
+        cli.argv.append(f"-rpcwallet={_opt(args, 'wallet') or snapshot['node_wallet']}")
+        try:
+            cli.call("getwalletinfo")
+        except (RpcError, OSError) as exc:
+            print(
+                f"error: cannot reach the node wallet for the spend history ({exc}); pass --offline to write proofs.json without it",
+                file=sys.stderr,
+            )
+            return 2
+    document = finalize_bundle(directory, lenient=args.lenient, with_descriptor=args.with_descriptor, cli=cli)
     out = Path(args.output) if args.output else directory / "proofs.json"
     out.write_text(json.dumps(document, indent=2) + "\n")
     total = sum(p["total_sat"] for p in document["proofs"])
@@ -111,6 +128,7 @@ def cmd_finalize(args) -> int:
                 "total_btc": btc(total),
                 "written": str(out),
                 "wallet_descriptor_included": bool(args.with_descriptor),
+                "outputs_spent_since_snapshot": len(document["spends"]) if document["spends"] is not None else "not recorded",
             },
             indent=2,
         ),
@@ -120,27 +138,11 @@ def cmd_finalize(args) -> int:
     return 0
 
 
-def cmd_spends(args) -> int:
-    directory = Path(args.directory)
-    snapshot = load_proofs(directory) if (directory / "proofs.json").exists() else json.loads((directory / "snapshot.json").read_text())
-    result = collect_spends(_cli(args), snapshot)
-    out = Path(args.output) if args.output else directory / "spends.json"
-    out.write_text(json.dumps(result, indent=2) + "\n")
-    print(json.dumps({"spent_outputs": len(result["spends"]), "written": str(out)}, indent=2), file=sys.stderr)
-    print(str(out))
-    return 0
-
-
 def cmd_verify(args) -> int:
-    proofs_path = Path(args.proofs)
-    document = load_proofs(proofs_path)
+    document = load_proofs(Path(args.proofs))
     cli = None if args.offline else _cli(args)
     engines = args.engines.split(",") if args.engines else None
-    spends_file = Path(args.spends) if args.spends else (proofs_path if proofs_path.is_dir() else proofs_path.parent) / "spends.json"
-    spends = load_spends(spends_file) if spends_file.is_file() else None
-    report = verify_proofs(document, cli, engines=engines, txindex=args.txindex, scan=args.scan, spends=spends)
-    if spends is not None:
-        report["spends_file"] = str(spends_file)
+    report = verify_proofs(document, cli, engines=engines, txindex=args.txindex, scan=args.scan)
     if args.report:
         Path(args.report).write_text(json.dumps(report, indent=2, default=str) + "\n")
     _emit(json.dumps(report, indent=2, default=str) if args.json else format_report(report), args.output)
@@ -230,31 +232,30 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser(
         "finalize",
         help="combine and finalize the signed PSBTs of a bundle into proofs.json",
-        description="Read every PSBT in <dir> and <dir>/signed/, group them by address, combine, finalize, self-verify, and write proofs.json.",
+        description=(
+            "Read every PSBT in <dir>/to_sign/ and <dir>/signed/, group them by address, combine, finalize, self-verify, and write "
+            "proofs.json. Unless --offline, also ask the node wallet the coins came from (recorded in snapshot.json, or -w) which "
+            "listed outputs have been spent since the snapshot and record the spending transactions: a spend confirmed after the "
+            "stamp block lets the auditor show the output was unspent at the snapshot. Re-run finalize before handing proofs.json "
+            "over if coins have moved."
+        ),
     )
     p.add_argument("directory", metavar="DIR", help="the snapshot bundle directory")
+    _add_node_args(p)
+    p.add_argument("--offline", action="store_true", help="do not ask the node wallet for the spend history")
     p.add_argument("--lenient", action="store_true", help="skip invalid partial signatures instead of failing")
     p.add_argument(
         "--with-descriptor", action="store_true", help="include the wallet descriptor (xpubs) in proofs.json; off by default for privacy"
     )
     p.add_argument("--output", "-o", metavar="FILE", help="proofs file (default DIR/proofs.json)")
     p.set_defaults(
-        func=cmd_finalize, examples=["finalize snapshot-2026-09-14-912345", "finalize snapshot-2026-09-14-912345 --with-descriptor"]
+        func=cmd_finalize,
+        examples=[
+            "finalize snapshot-2026-09-14-912345",
+            "finalize snapshot-2026-09-14-912345 --offline",
+            "-w treasury finalize snapshot-2026-09-14-912345 --with-descriptor",
+        ],
     )
-
-    p = sub.add_parser(
-        "spends",
-        help="owner side: record which snapshot outputs were spent since, from the node wallet's history",
-        description=(
-            "For every snapshot output spent after the stamp block, record the spending transaction and its block "
-            "(listsinceblock on the node wallet) into spends.json. Give it to the auditor with proofs.json: a spend "
-            "confirmed after the stamp block proves the output was unspent at the snapshot, with no index on their node."
-        ),
-    )
-    p.add_argument("directory", metavar="DIR", help="the snapshot bundle directory")
-    _add_node_args(p)
-    p.add_argument("--output", "-o", metavar="FILE", help="spends file (default DIR/spends.json)")
-    p.set_defaults(func=cmd_spends, examples=["-w treasury spends snapshot-2026-09-14-912345"])
 
     p = sub.add_parser(
         "verify",
@@ -262,7 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Verify every BIP-322 signature, check the stamp block with getblockheader, check every listed output with "
             "gettxout (amount, address, creation height), and print a report. Outputs spent since the snapshot are fetched by "
-            "their recorded block hash and, with spends.json, shown to have been unspent at the snapshot. Exit 0 when the "
+            "their recorded block hash and, with the spends finalize recorded, shown to have been unspent at the snapshot. Exit 0 when the "
             "signatures, the stamp and the document check out and the node contradicts nothing."
         ),
     )
@@ -274,7 +275,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also use -txindex on the node for outputs whose creating block is not recorded in the snapshot",
     )
-    p.add_argument("--spends", metavar="FILE", help="spends.json from `bip322-audit spends` (default: next to proofs.json when present)")
     p.add_argument("--scan", action="store_true", help="also scantxoutset the proven addresses for their holdings now")
     p.add_argument("--engines", default=None, help="comma separated bip322 engines (default: all installed)")
     p.add_argument("--json", action="store_true", help="print the JSON report instead of the summary")
@@ -289,7 +289,7 @@ def build_parser() -> argparse.ArgumentParser:
         ],
     )
 
-    add_help_command("bip322-audit", sub, {"Workflow": ["stamp", "snapshot", "finalize", "spends", "verify", "help"]})
+    add_help_command("bip322-audit", sub, {"Workflow": ["stamp", "snapshot", "finalize", "verify", "help"]})
     return parser
 
 
