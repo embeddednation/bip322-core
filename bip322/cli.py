@@ -86,7 +86,7 @@ def _read_psbt(path: str) -> BIP322PSBT:
     return parse_psbt(data)
 
 
-def _emit(text: str, path: str | None) -> None:
+def emit(text: str, path: str | None) -> None:
     """The command's artifact: to stdout, or to ``path`` (``-`` = stdout) with nothing on stdout."""
     if path is None or path == "-":
         sys.stdout.write(text if text.endswith("\n") else text + "\n")
@@ -381,7 +381,7 @@ def cmd_finalize(args) -> int:
         "signature": signature,
         "to_sign_hex": extract_tx(psbt).serialize().hex(),
     }
-    _emit(json.dumps(out, indent=2) if args.json else signature, args.output)
+    emit(json.dumps(out, indent=2) if args.json else signature, args.output)
     return 0
 
 
@@ -430,7 +430,7 @@ def cmd_checksigners(args) -> int:
     engines = args.engines.split(",") if args.engines else available_engines()
     report = check_signers(psbt, engines=engines, network=_network(args) or "main")
     if args.json:
-        _emit(json.dumps(report, indent=2), args.output)
+        emit(json.dumps(report, indent=2), args.output)
     else:
         lines = [f"address   {report['address']}", f"message   {report['message_utf8']!r}", f"threshold {report['threshold']}", ""]
         sc = report.get("script") or {}
@@ -457,7 +457,7 @@ def cmd_checksigners(args) -> int:
         lines.append("")
         lines.append(f"signers valid: {summary['signers_valid']}; combinations valid: {summary['combinations_valid']}")
         lines.append("RESULT: " + ("OK" if report["ok"] else "FAILED"))
-        _emit("\n".join(lines), args.output)
+        emit("\n".join(lines), args.output)
     return 0 if report["ok"] else 1
 
 
@@ -518,7 +518,7 @@ def cmd_decodesignature(args) -> int:
     else:
         out["note"] = "65-byte payload: a legacy BIP-137 signature (recoverable ECDSA), P2PKH only"
         out["hex"] = decoded.payload.hex()
-    _emit(json.dumps(out, indent=2), args.output)
+    emit(json.dumps(out, indent=2), args.output)
     return 0
 
 

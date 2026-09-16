@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from bip322._version import SPEC
-from bip322.cli import CLIError, _emit, add_help_command
+from bip322.cli import CLIError, add_help_command, emit
 from bip322.core import BIP322Error
 from bip322.wallet import Wallet, wallet_from_file
 
@@ -144,7 +144,7 @@ def cmd_verify(args) -> int:
     report = verify_proofs(document, cli, engines=engines, txindex=args.txindex)
     if args.report:
         Path(args.report).write_text(json.dumps(report, indent=2, default=str) + "\n")
-    _emit(json.dumps(report, indent=2, default=str) if args.json else format_report(report), args.output)
+    emit(json.dumps(report, indent=2, default=str) if args.json else format_report(report), args.output)
     return 0 if report["ok"] else 1
 
 

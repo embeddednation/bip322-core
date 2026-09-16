@@ -9,7 +9,7 @@ from pathlib import Path
 
 from embit.networks import NETWORKS
 
-from ..cli import CLIError, _add_output_args, _emit, _network, _read_psbt, _write_psbt, add_help_command
+from ..cli import CLIError, _add_output_args, _network, _read_psbt, _write_psbt, add_help_command, emit
 from ..core import BIP322Error
 from ..psbt import inspect_psbt
 from .keys import cosigner_from_text, generate_cosigner, wallet_from_cosigners
@@ -30,7 +30,7 @@ def _read_signer_key(text: str) -> str:
 
 
 def cmd_keygen(args) -> int:
-    _emit(json.dumps(generate_cosigner(args.label, args.seed, args.origin, args.network or "main"), indent=2), args.output)
+    emit(json.dumps(generate_cosigner(args.label, args.seed, args.origin, args.network or "main"), indent=2), args.output)
     return 0
 
 
@@ -47,7 +47,7 @@ def cmd_makewallet(args) -> int:
             raise CLIError("--threshold is required for a multisig wallet (or use --wpkh with one key)")
         name = args.name or f"bip322-{args.threshold}of{len(cosigners)}"
     wallet = wallet_from_cosigners(args.threshold, cosigners, network=network, name=name, wpkh=args.wpkh)
-    _emit(wallet.to_descriptor(), args.output)
+    emit(wallet.to_descriptor(), args.output)
     info = wallet.describe()
     info["first_address"] = wallet.derive(0).address
     print(json.dumps({k: info[k] for k in ("name", "network", "policy", "script", "first_address")}, indent=2), file=sys.stderr)
