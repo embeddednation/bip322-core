@@ -112,9 +112,11 @@ class FakeCli(BitcoinCli):
             out.append({"txid": "ee" * 32, "vout": 0, "address": "not-an-address", "amount": "1.00000000", "confirmations": 999})
             return out
         if method == "scantxoutset":
+            objects = params[1] if len(params) > 1 else []
+            wanted = {o["desc"][5:-1] for o in objects if str(o.get("desc", "")).startswith("addr(")}
             unspents = []
             for address, txid, vout, amount, height in self._utxos():
-                if (txid, vout) in self.spent:
+                if (txid, vout) in self.spent or (wanted and address not in wanted):
                     continue
                 d = self.wallet.find_address(address, max_index=20)
                 unspents.append(
@@ -417,66 +419,54 @@ def test_core_package_stays_pure():
         assert not forbidden.search(path.read_text()), f"{path} imports chain-facing or audit code"
 
 
-def test_proofs_omit_the_descriptor_unless_asked(tmp_path, wallet, funded, signer_expressions):
+def test_proofs_document_names_addresses_not_a_wallet(tmp_path, wallet, funded, signer_expressions):
+    """The auditor's document carries no descriptor, no xpub, no derivation path and no node wallet name."""
     directory = _signed_bundle(tmp_path, wallet, funded, signer_expressions)
     document = finalize_bundle(directory)
-    assert "descriptor" not in document["wallet"] and document["wallet"]["descriptor_shared"] is False
-    assert (
-        document["wallet"]["policy"] and json.loads((directory / "snapshot.json").read_text())["wallet"]["descriptor"]
-    )  # the owner's copy keeps it
-    assert wallet.to_descriptor() not in json.dumps(document)
-    for xpub in [str(c.xpub) for c in wallet.cosigners]:
-        assert xpub not in json.dumps(document)
-    cli = FakeCli(wallet, funded, tip=1200)
-    report = verify_proofs(document, cli, engines=["btclib"], scan=True)
-    assert report["ok"] and not report["document_problems"] and report["wallet_descriptor_shared"] is False
-    assert all(p["address_in_wallet"] is None for p in report["proofs"])
-    assert report["current_holdings"]["scanned"] == "proven addresses only"
-    assert "wallet descriptor    not shared" in format_report(report)
-    shared = finalize_bundle(directory, with_descriptor=True)
-    assert shared["wallet"]["descriptor"] == wallet.to_descriptor() and "descriptor_shared" not in shared["wallet"]
+    text = json.dumps(document)
+    assert "wallet" not in document and "node_wallet" not in document and "source" not in document
+    assert wallet.to_descriptor() not in text and all(str(c.xpub) not in text for c in wallet.cosigners)
+    assert all("branch" not in p and "index" not in p for p in document["proofs"])
+    assert document["policy"] == "2 of 3" and {p["address"] for p in document["proofs"]} == set(funded)
+    owner = json.loads((directory / "snapshot.json").read_text())  # the owner's copy keeps everything
+    assert owner["wallet"]["descriptor"] == wallet.to_descriptor() and owner["addresses"][0]["index"] == 0
+    report = verify_proofs(document, FakeCli(wallet, funded, tip=1200), engines=["btclib"])
+    assert report["ok"] and "address_in_wallet" not in report["proofs"][0] and "wallet_descriptor_shared" not in report
+    assert "descriptor" not in format_report(report)
 
 
-def test_verify_checks_document_consistency_and_wallet_membership(tmp_path, wallet, funded, signer_expressions):
+def test_verify_checks_document_consistency(tmp_path, wallet, funded, signer_expressions):
     directory = _signed_bundle(tmp_path, wallet, funded, signer_expressions)
-    document = finalize_bundle(directory, with_descriptor=True)
+    document = finalize_bundle(directory)
     cli = FakeCli(wallet, funded, tip=1200)
     good = verify_proofs(document, cli, engines=["btclib"])
-    assert good["ok"] and all(p["address_in_wallet"] for p in good["proofs"]) and good["summary"]["document_consistent"]
-    # an address that is not where the document says it is
-    bad = json.loads(json.dumps(document))
-    bad["proofs"][0]["index"] = 9
-    report = verify_proofs(bad, cli, engines=["btclib"])
-    assert not report["ok"] and report["proofs"][0]["address_in_wallet"] is False and "not branch" in report["document_problems"][0]
+    assert good["ok"] and good["summary"]["document_consistent"]
     # a stamp in the document that disagrees with the signed message
     bad = json.loads(json.dumps(document))
     bad["stamp"]["height"] += 1
     report = verify_proofs(bad, cli, engines=["btclib"])
     assert not report["ok"] and "stamp recorded" in report["document_problems"][0]
+    assert "1 problem(s), listed above" in format_report(report)
     # message and message_hex disagreeing is refused outright
     bad = json.loads(json.dumps(document))
     bad["message"] = bad["message"] + "!"
     with pytest.raises(AuditError, match="inconsistent"):
         verify_proofs(bad, cli, engines=["btclib"])
-    # a descriptor that cannot be built is reported, membership unknown
-    bad = json.loads(json.dumps(document))
-    bad["wallet"]["descriptor"] = "wsh(sortedmulti(2,xpub6nope))"
-    report = verify_proofs(bad, cli, engines=["btclib"])
-    assert not report["ok"] and report["proofs"][0]["address_in_wallet"] is None and "unusable" in report["document_problems"][0]
 
 
-def test_verify_scan_reports_unproven_coins(tmp_path, wallet, funded, signer_expressions):
+def test_verify_scan_reports_what_the_proven_addresses_hold_now(tmp_path, wallet, funded, signer_expressions):
     directory = _signed_bundle(tmp_path, wallet, funded, signer_expressions)
-    document = finalize_bundle(directory, with_descriptor=True)
+    document = finalize_bundle(directory)
     extra = dict(funded)
-    extra[wallet.derive(3).address] = [(7_000_000, 995)]  # funded after the snapshot, never proven
-    report = verify_proofs(document, FakeCli(wallet, extra, tip=1200), engines=["btclib"], scan=True)
+    extra[wallet.derive(3).address] = [(7_000_000, 995)]  # another address of the same wallet: not proven, not scanned
+    cli = FakeCli(wallet, extra, tip=1200)
+    report = verify_proofs(document, cli, engines=["btclib"], scan=True)
+    scanned = [c for c in cli.calls if c[0] == "scantxoutset"][-1]
+    assert [o["desc"] for o in scanned[2]] == [f"addr({p['address']})" for p in document["proofs"]]
     holdings = report["current_holdings"]
-    assert holdings["scanned"] == "wallet descriptor" and holdings["total_sat"] == 92_000_000
-    assert holdings["unproven"] == {wallet.derive(3).address: 7_000_000} and holdings["unproven_sat"] == 7_000_000
-    text = format_report(report)
-    assert "not covered by any proof" in text and wallet.derive(3).address in text
-    assert report["ok"]  # unproven coins are reported, not a verdict about the proofs given
+    assert holdings["total_sat"] == 85_000_000 and wallet.derive(3).address not in holdings["by_address_sat"]
+    assert holdings["by_address_sat"] == {a: sum(v for v, _ in coins) for a, coins in funded.items()}
+    assert "proven addresses hold now" in format_report(report) and report["ok"]
 
 
 def test_wallet_from_node(wallet, funded):

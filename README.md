@@ -195,12 +195,12 @@ before it starts; `--source` forces either). The template accepts
 `{date}`, `{time}`, `{height}`, `{hash}`, and is checked against Coldcard's
 message rules.
 
-`proofs.json` carries the addresses, the proofs, the outputs and the wallet
-policy (`2-of-3 P2WSH`), but **not the wallet descriptor**: the xpubs would let
-the auditor derive every address of the wallet, which the proofs do not need.
-`finalize --with-descriptor` includes it when that is wanted; it buys the
-auditor two extra checks (see below). `snapshot.json`, the owner's copy, keeps
-it either way.
+`proofs.json` names addresses, not a wallet: the message, the stamp, and per
+address the proof and its outputs, plus the policy string (`2 of 3`). No
+descriptor, no xpubs, no derivation paths and no node wallet name go in. The
+proofs stand per address, and the xpubs would let the auditor derive every
+address of the wallet, past and future, which no check of the claim needs.
+`snapshot.json`, the owner's copy, keeps all of it.
 
 `verify` re-checks everything on the auditor's node: each BIP-322 signature,
 the stamp block (`getblockheader`: height, time, in main chain), that the
@@ -214,13 +214,17 @@ the spending transaction, which only an address index or the owner's wallet
 knows; `finalize` records it in `proofs.json` from the node wallet's history
 (`listsinceblock` from the stamp block), and `verify` checks that it really
 spends the output and was confirmed after the stamp block. A spend at or
-before the stamp is a contradiction. With the descriptor shared, `verify` also checks that every
-proven address sits at its stated index, and `--scan` scans the UTXO set for
-the whole descriptor and lists funded addresses no proof covers, the
-completeness check; without it, `--scan` covers the proven addresses only and
-says so. The result is OK when the signatures and the stamp check out, the
-document is consistent, and the node contradicts nothing; coins spent since
-the snapshot are reported, not failures. `--offline` verifies signatures only.
+before the stamp is a contradiction. `--scan` adds what the proven addresses
+hold now, from a UTXO-set scan of exactly those addresses. The result is OK
+when the signatures and the stamp check out, the document is consistent, and
+the node contradicts nothing; coins spent since the snapshot are reported,
+not failures. `--offline` verifies signatures only.
+
+Completeness (that the listed addresses are all the holdings in scope) is not
+something a key or a scan can establish, since nothing rules out a second
+wallet. It comes from the audited party's representation and from
+reconciling one year's spends to the next year's proofs, which the recorded
+spends make possible.
 
 `examples/audit_walkthrough.sh` runs the whole thing on a throwaway regtest
 node, including spending a coin after the snapshot.

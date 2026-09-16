@@ -153,9 +153,8 @@ holds none.
 * **Verdict.** `verify` is OK when every signature is valid, the stamp block
   is in the node's main chain with the claimed height and time, the document
   is consistent (its recorded stamp equals the one inside the signed message,
-  `message` and `message_hex` agree, every proven address sits at the stated
-  branch/index of the declared descriptor), and no listed output is
-  contradicted by the node (different amount, address or creation height).
+  `message` and `message_hex` agree), and no listed output is contradicted by
+  the node (different amount, address or creation height).
   Outputs no longer in the UTXO set are fetched by the block hash the snapshot
   recorded for their creating transaction (`getrawtransaction TXID true HASH`
   works on any node), which confirms they existed at the snapshot block with
@@ -167,16 +166,18 @@ holds none.
   `finalize` refreshes the record; the proofs are unchanged. Without it the
   report says existence is shown and unspent-at-snapshot is not; a spend at
   or before the stamp is a contradiction.
-* **Privacy.** `proofs.json` omits the wallet descriptor by default. The
-  proofs already expose each proven address and, in the witness, its script
-  and child public keys; the xpubs would additionally let the auditor derive
-  every address of the wallet, past and future. `finalize --with-descriptor`
-  opts in, which enables the membership check and the descriptor-wide `--scan`.
-* **Completeness.** With the descriptor shared, `verify --scan` scans the UTXO
-  set for the *declared descriptor*, not just the proven addresses, and lists
-  funded addresses that no proof covers. A snapshot proves what it lists; the
-  scan is how an auditor sees whether that is everything the wallet holds now.
-  Without the descriptor the scan covers the proven addresses only.
+* **Addresses, not a wallet.** `proofs.json` carries no descriptor, xpub,
+  derivation path or node wallet name. The claim under audit is about control
+  of listed coins at a block, and the signatures plus the chain settle it per
+  address; that the addresses share a parent key is bookkeeping, and the
+  policy is visible in each witness anyway. The xpubs would let the auditor
+  derive every address of the wallet, past and future, and a scan of one
+  descriptor would suggest a completeness that it cannot establish (nothing
+  rules out a second wallet). Completeness comes from the audited party's
+  representation and from reconciling spends between snapshots, which the
+  recorded spends support. `verify --scan` therefore scans exactly the proven
+  addresses and reports what they hold now. The owner's `snapshot.json` keeps
+  the descriptor and the derivation paths.
 * **Device health check.** `bip322 checksigners` takes the devices' PSBT files,
   shows the script behind the input and its mapping back to the address,
   verifies each cosigner's signature alone, and finalizes and verifies one

@@ -15,7 +15,6 @@ from pathlib import Path
 from bip322.engines import available_engines
 from bip322.psbt import BIP322PSBT, FinalizeError, combine_psbts, finalize_psbt, parse_psbt, signature_from_psbt
 from bip322.verify import verify_message
-from bip322.wallet import Wallet, WalletError
 
 from . import TOOL
 from .rpc import BitcoinCli, RpcError, btc, to_sat
@@ -53,17 +52,17 @@ def collect_psbts(directory: Path) -> dict[str, list[BIP322PSBT]]:
     return groups
 
 
-def finalize_bundle(
-    directory: Path, *, lenient: bool = False, engines=None, with_descriptor: bool = False, cli: BitcoinCli | None = None
-) -> dict:
+def finalize_bundle(directory: Path, *, lenient: bool = False, engines=None, cli: BitcoinCli | None = None) -> dict:
     """Combine and finalize the signed PSBTs of every address; return the proofs document.
 
-    The wallet descriptor (xpubs) is left out unless ``with_descriptor`` is set:
-    it would let the auditor derive every address of the wallet, which the
-    proofs do not require.  With ``cli`` (the node wallet the coins came from)
-    the document also records which listed outputs have been spent since the
-    snapshot and by what, so that a verifier can show they were unspent at the
-    snapshot; re-running finalize refreshes that.
+    The document is what the auditor gets: the message, the stamp, and per
+    address the proof and the outputs.  Nothing about the wallet behind the
+    addresses goes in (no descriptor, no derivation paths, no node wallet
+    name): the proofs stand per address, and the xpubs would let the auditor
+    derive every address of the wallet.  With ``cli`` (the node wallet the
+    coins came from) the document also records which listed outputs have been
+    spent since the snapshot and by what, so that a verifier can show they
+    were unspent at the snapshot; re-running finalize refreshes that.
     """
     snapshot = load_snapshot(directory)
     groups = collect_psbts(directory)
@@ -87,15 +86,20 @@ def finalize_bundle(
         if not result.ok:
             missing.append(f"{address}: finalized proof does not verify: {result.reason}")
             continue
-        proofs.append({**entry, "signature": signature, "variant": signature[:3]})
+        public = {k: v for k, v in entry.items() if k not in ("branch", "index")}
+        proofs.append({**public, "signature": signature, "variant": signature[:3]})
     if missing:
         raise AuditError("cannot finalize every address:\n  " + "\n  ".join(missing))
-    document = dict(snapshot)
-    document.update({"tool": TOOL, "finalized_utc": _now(), "message_hex": message.hex(), "proofs": proofs})
-    document.pop("addresses", None)
-    if not with_descriptor:
-        document["wallet"] = {k: v for k, v in (snapshot.get("wallet") or {}).items() if k != "descriptor"}
-        document["wallet"]["descriptor_shared"] = False
+    document = {k: v for k, v in snapshot.items() if k not in ("addresses", "wallet", "node_wallet", "source")}
+    document.update(
+        {
+            "tool": TOOL,
+            "finalized_utc": _now(),
+            "message_hex": message.hex(),
+            "policy": (snapshot.get("wallet") or {}).get("policy"),
+            "proofs": proofs,
+        }
+    )
     if cli is not None:
         spends = collect_spends(cli, snapshot)
         document["spends"] = spends["spends"]
@@ -263,8 +267,6 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
     }
     if stamp is not None and document.get("stamp") and Stamp.from_dict(document["stamp"]) != stamp:
         report["document_problems"].append("the stamp recorded in proofs.json differs from the stamp inside the signed message")
-    wallet = _document_wallet(document, report)
-    report["wallet_descriptor_shared"] = wallet is not None
     report["spends_recorded_utc"] = document.get("spends_utc")
 
     if cli is not None:
@@ -289,19 +291,12 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
         verdict = verify_message(address, proof["signature"], message, engines=engines)
         row = {
             "address": address,
-            "branch": proof.get("branch"),
-            "index": proof.get("index"),
             "bip322": verdict.to_dict(),
             "utxos": [],
             "claimed_sat": proof["total_sat"],
         }
         row["bip322"].pop("message_utf8", None)
         row["bip322"].pop("message_hex", None)
-        row["address_in_wallet"] = _address_in_wallet(wallet, proof)
-        if row["address_in_wallet"] is False:
-            report["document_problems"].append(
-                f"{address} is not branch {proof.get('branch')} index {proof.get('index')} of the declared wallet descriptor"
-            )
         all_proofs_ok &= verdict.ok
         claimed += proof["total_sat"]
         if cli is not None and stamp is not None:
@@ -321,7 +316,7 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
         report["proofs"].append(row)
 
     if cli is not None and scan:
-        report["current_holdings"] = _scan_now(cli, document, wallet)
+        report["current_holdings"] = _scan_now(cli, document)
     unspent_at_snapshot = sum(
         1
         for p in report["proofs"]
@@ -346,80 +341,41 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
         "utxos_shown_unspent_at_snapshot": f"{unspent_at_snapshot}/{total_count}" if online else None,
     }
     # the proof of control stands when the signatures and the stamp check out, the document is consistent with
-    # itself and its wallet, and the node contradicts nothing; outputs spent since the snapshot are reported
-    # (and confirmed with --txindex), not failures
+    # itself, and the node contradicts nothing; outputs spent since the snapshot are reported, not failures
     report["summary"]["document_consistent"] = not report["document_problems"]
     report["ok"] = all_proofs_ok and (stamp_ok if online else True) and contradictions == 0 and not report["document_problems"]
     return report
 
 
-def _document_wallet(document: dict, report: dict) -> Wallet | None:
-    """The wallet declared in proofs.json, on the document's chain; None when it cannot be built."""
-    descriptor = (document.get("wallet") or {}).get("descriptor")
-    if not descriptor:
-        return None
-    network = {"main": "main", "test": "test", "regtest": "regtest", "signet": "signet"}.get(document.get("chain") or "")
-    try:
-        return Wallet.from_descriptor(descriptor, network=network)
-    except WalletError as exc:
-        report["document_problems"].append(f"declared wallet descriptor is unusable: {exc}")
-        return None
+def _scan_now(cli: BitcoinCli, document: dict) -> dict:
+    """What the proven addresses hold *now*, from a UTXO-set scan of exactly those addresses.
 
-
-def _address_in_wallet(wallet: Wallet | None, proof: dict) -> bool | None:
-    """Does the proof's address sit at the stated branch/index of the declared wallet?"""
-    if wallet is None or proof.get("index") is None:
-        return None
-    try:
-        derived = wallet.derive(int(proof["index"]), int(proof.get("branch") or 0))
-    except WalletError:
-        return False
-    return derived.address == proof["address"] or _same_script(wallet, derived.script_pubkey, proof["address"])
-
-
-def _same_script(wallet: Wallet, script_pubkey: bytes, address: str) -> bool:
-    from embit.script import address_to_scriptpubkey
-
-    try:
-        return address_to_scriptpubkey(address).data == script_pubkey
-    except Exception:  # noqa: BLE001
-        return False
-
-
-def _scan_now(cli: BitcoinCli, document: dict, wallet: Wallet | None, scan_range: int = 1000) -> dict:
-    """What the wallet holds *now*: every funded address of the declared descriptor, proven or not.
-
-    This is the completeness check an auditor wants: coins of the wallet that no
-    proof covers show up as ``unproven``.  Falls back to the proven addresses
-    only when the document declares no usable wallet.
+    Nothing more is scanned: the document names addresses, not a wallet, so
+    this is a current-balance check of what was proven, not a search for
+    coins elsewhere.
     """
-    if wallet is not None:
-        descriptors = [{"desc": d, "range": [0, scan_range]} for d in wallet.core_descriptors()]
-    else:
-        descriptors = [{"desc": f"addr({p['address']})"} for p in document["proofs"]]
-    result = cli.call("scantxoutset", "start", descriptors)
-    if not result or not result.get("success"):
-        raise AuditError("scantxoutset did not succeed (another scan running?)")
     from embit.networks import NETWORKS
     from embit.script import Script
 
+    descriptors = [{"desc": f"addr({p['address']})"} for p in document["proofs"]]
+    result = cli.call("scantxoutset", "start", descriptors)
+    if not result or not result.get("success"):
+        raise AuditError("scantxoutset did not succeed (another scan running?)")
+    network = NETWORKS.get(document.get("chain") or "main", NETWORKS["main"])
+    proven = {p["address"] for p in document["proofs"]}
     by_address: dict[str, int] = {}
     for u in result.get("unspents", []):
         try:
-            address = Script(bytes.fromhex(u["scriptPubKey"])).address(NETWORKS[wallet.network if wallet else "main"])
+            address = Script(bytes.fromhex(u["scriptPubKey"])).address(network)
         except Exception:  # noqa: BLE001
             continue
-        by_address[address] = by_address.get(address, 0) + to_sat(u["amount"])
-    proven = {p["address"] for p in document["proofs"]}
-    unproven = {a: v for a, v in by_address.items() if a not in proven}
+        if address in proven:
+            by_address[address] = by_address.get(address, 0) + to_sat(u["amount"])
     return {
         "height": int(result["height"]),
         "bestblock": result["bestblock"],
-        "scanned": "wallet descriptor" if wallet is not None else "proven addresses only",
         "by_address_sat": by_address,
         "total_sat": sum(by_address.values()),
-        "unproven": unproven,
-        "unproven_sat": sum(unproven.values()),
     }
 
 
@@ -439,12 +395,6 @@ def _summary_rows(report: dict) -> list[tuple[str, str]]:
         rows.append(("stamp block", f"FAILED ({st.get('error') or 'mismatch'})"))
     problems = report.get("document_problems", [])
     rows.append(("document", "consistent" if not problems else f"{len(problems)} problem(s), listed above"))
-    if report.get("wallet_descriptor_shared"):
-        rows.append(("wallet descriptor", "shared: every proven address sits at its stated index"))
-    elif any("unusable" in p for p in problems):
-        rows.append(("wallet descriptor", "shared but unusable, see above"))
-    else:
-        rows.append(("wallet descriptor", "not shared: each proof stands on its own address; --scan looks at those addresses only"))
     if online:
         rows.append(
             (
@@ -480,7 +430,7 @@ def format_report(report: dict) -> str:
     lines.append("")
     for p in report["proofs"]:
         v = p["bip322"]
-        lines.append(f"{p['address']}  (branch {p['branch']}, index {p['index']})  bip322: {v['state'].upper()}")
+        lines.append(f"{p['address']}  bip322: {v['state'].upper()}")
         for u in p["utxos"]:
             mark = "ok" if u.get("verified") else ("!!" if u.get("contradiction") else "--")
             detail = (
@@ -498,12 +448,8 @@ def format_report(report: dict) -> str:
     if report.get("current_holdings"):
         h = report["current_holdings"]
         lines.append(
-            f"current holdings at height {h['height']} ({h['scanned']}): {btc(h['total_sat'])} BTC across {len(h['by_address_sat'])} address(es)"
+            f"proven addresses hold now, at height {h['height']}: {btc(h['total_sat'])} BTC across {len(h['by_address_sat'])} address(es)"
         )
-        if h.get("unproven"):
-            lines.append(f"  !! {btc(h['unproven_sat'])} BTC at {len(h['unproven'])} funded address(es) not covered by any proof:")
-            for a, v in h["unproven"].items():
-                lines.append(f"     {a}  {btc(v)} BTC")
     for problem in report.get("document_problems", []):
         lines.append(f"!! document: {problem}")
     lines.append("")

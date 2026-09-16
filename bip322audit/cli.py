@@ -116,7 +116,7 @@ def cmd_finalize(args) -> int:
                 file=sys.stderr,
             )
             return 2
-    document = finalize_bundle(directory, lenient=args.lenient, with_descriptor=args.with_descriptor, cli=cli)
+    document = finalize_bundle(directory, lenient=args.lenient, cli=cli)
     out = Path(args.output) if args.output else directory / "proofs.json"
     out.write_text(json.dumps(document, indent=2) + "\n")
     total = sum(p["total_sat"] for p in document["proofs"])
@@ -127,7 +127,6 @@ def cmd_finalize(args) -> int:
                 "total_sat": total,
                 "total_btc": btc(total),
                 "written": str(out),
-                "wallet_descriptor_included": bool(args.with_descriptor),
                 "outputs_spent_since_snapshot": len(document["spends"]) if document["spends"] is not None else "not recorded",
             },
             indent=2,
@@ -244,16 +243,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_node_args(p)
     p.add_argument("--offline", action="store_true", help="do not ask the node wallet for the spend history")
     p.add_argument("--lenient", action="store_true", help="skip invalid partial signatures instead of failing")
-    p.add_argument(
-        "--with-descriptor", action="store_true", help="include the wallet descriptor (xpubs) in proofs.json; off by default for privacy"
-    )
     p.add_argument("--output", "-o", metavar="FILE", help="proofs file (default DIR/proofs.json)")
     p.set_defaults(
         func=cmd_finalize,
         examples=[
             "finalize snapshot-2026-09-14-912345",
             "finalize snapshot-2026-09-14-912345 --offline",
-            "-w treasury finalize snapshot-2026-09-14-912345 --with-descriptor",
+            "-w treasury finalize snapshot-2026-09-14-912345",
         ],
     )
 
