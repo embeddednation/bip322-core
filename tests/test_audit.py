@@ -51,10 +51,13 @@ class FakeCli(BitcoinCli):
             from embit.descriptor.checksum import add_checksum
 
             base = self.wallet.to_descriptor(checksum=False)
-            return {"wallet_name": "watch", "descriptors": [
-                {"desc": add_checksum(base.replace("/<0;1>/*", "/0/*")), "active": True, "internal": False, "range": [0, 999]},
-                {"desc": add_checksum(base.replace("/<0;1>/*", "/1/*")), "active": True, "internal": True, "range": [0, 999]},
-            ]}
+            return {
+                "wallet_name": "watch",
+                "descriptors": [
+                    {"desc": add_checksum(base.replace("/<0;1>/*", "/0/*")), "active": True, "internal": False, "range": [0, 999]},
+                    {"desc": add_checksum(base.replace("/<0;1>/*", "/1/*")), "active": True, "internal": True, "range": [0, 999]},
+                ],
+            }
         if method == "getblockhash":
             return fake_hash(int(params[0]))
         if method == "getblockheader":
@@ -71,9 +74,32 @@ class FakeCli(BitcoinCli):
                 if conf < minconf or (txid, vout) in self.spent:
                     continue
                 d = self.wallet.find_address(address, max_index=20)
-                desc = f"wsh(sortedmulti(2,[ea34d476/48h/0h/0h/2h/{d.branch}/{d.index}]02aa,[6cb0f623/48h/0h/0h/2h/{d.branch}/{d.index}]02bb))#abcdefgh" if d else "addr(x)"
-                out.append({"txid": txid, "vout": vout, "address": address, "amount": f"{amount / 1e8:.8f}", "confirmations": conf, "desc": desc, "spendable": False, "solvable": True})
-            out.append({"txid": "ff" * 32, "vout": 0, "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l", "amount": "1.00000000", "confirmations": 999})
+                desc = (
+                    f"wsh(sortedmulti(2,[ea34d476/48h/0h/0h/2h/{d.branch}/{d.index}]02aa,[6cb0f623/48h/0h/0h/2h/{d.branch}/{d.index}]02bb))#abcdefgh"
+                    if d
+                    else "addr(x)"
+                )
+                out.append(
+                    {
+                        "txid": txid,
+                        "vout": vout,
+                        "address": address,
+                        "amount": f"{amount / 1e8:.8f}",
+                        "confirmations": conf,
+                        "desc": desc,
+                        "spendable": False,
+                        "solvable": True,
+                    }
+                )
+            out.append(
+                {
+                    "txid": "ff" * 32,
+                    "vout": 0,
+                    "address": "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
+                    "amount": "1.00000000",
+                    "confirmations": 999,
+                }
+            )
             out.append({"txid": "ee" * 32, "vout": 0, "address": "not-an-address", "amount": "1.00000000", "confirmations": 999})
             return out
         if method == "scantxoutset":
@@ -82,13 +108,26 @@ class FakeCli(BitcoinCli):
                 if (txid, vout) in self.spent:
                     continue
                 d = self.wallet.find_address(address, max_index=20)
-                unspents.append({"txid": txid, "vout": vout, "scriptPubKey": d.script_pubkey.hex(), "amount": f"{amount / 1e8:.8f}", "height": height, "desc": ""})
+                unspents.append(
+                    {
+                        "txid": txid,
+                        "vout": vout,
+                        "scriptPubKey": d.script_pubkey.hex(),
+                        "amount": f"{amount / 1e8:.8f}",
+                        "height": height,
+                        "desc": "",
+                    }
+                )
             return {"success": True, "height": self.tip_height, "bestblock": fake_hash(self.tip_height), "unspents": unspents}
         if method == "gettxout":
             txid, vout = params[0], int(params[1])
             for address, t, v, amount, height in self._utxos():
                 if (t, v) == (txid, vout) and (t, v) not in self.spent:
-                    return {"value": f"{amount / 1e8:.8f}", "confirmations": self.tip_height - height + 1, "scriptPubKey": {"address": address}}
+                    return {
+                        "value": f"{amount / 1e8:.8f}",
+                        "confirmations": self.tip_height - height + 1,
+                        "scriptPubKey": {"address": address},
+                    }
             return None
         raise RpcError(f"fake node: unsupported {method}")
 
@@ -184,7 +223,12 @@ def test_finalize_and_verify_with_fake_node(tmp_path, wallet, funded, signer_exp
     report = verify_proofs(document, cli, engines=["btclib"])
     assert report["ok"] and report["summary"]["proofs_valid"] and report["stamp"]["ok"]
     assert report["summary"]["utxos_verified_at_snapshot"] == "3/3" and report["summary"]["all_utxos_still_unspent"]
-    assert report["totals"] == {"claimed_sat": 85_000_000, "claimed_btc": "0.85000000", "verified_unspent_sat": 85_000_000, "verified_unspent_btc": "0.85000000"}
+    assert report["totals"] == {
+        "claimed_sat": 85_000_000,
+        "claimed_btc": "0.85000000",
+        "verified_unspent_sat": 85_000_000,
+        "verified_unspent_btc": "0.85000000",
+    }
     text = format_report(report)
     assert "RESULT: OK" in text and "3/3" in text and "0.85000000 BTC" in text and " sat" not in text
 
@@ -232,13 +276,15 @@ def test_cli_end_to_end_with_fake_node(tmp_path, wallet, funded, signer_expressi
     out_dir = tmp_path / "bundle"
     assert audit_cli.main(["stamp", "--depth", "6"]) == 0
     assert capsys.readouterr().out.strip() == fetch_stamp(fake, 6).line()
-    assert audit_cli.main(["snapshot", "-w", "watch", "--text", "Audit {date}", "-o", str(out_dir)]) == 0  # descriptor from the node, -w after the command
+    assert (
+        audit_cli.main(["snapshot", "-w", "watch", "--text", "Audit {date}", "-o", str(out_dir)]) == 0
+    )  # descriptor from the node, -w after the command
     out, err = capsys.readouterr()
     assert out.strip() == str(out_dir) and json.loads(err)["total_sat"] == 85_000_000
     assert audit_cli.main(["-w", "watch", "snapshot", "-d", str(cfg), "-o", str(out_dir)]) == 2  # not empty
     capsys.readouterr()
     other = tmp_path / "other.desc"
-    other.write_text(wallet.to_descriptor().replace("sortedmulti(2,", "sortedmulti(1,") .split("#")[0] + "\n")
+    other.write_text(wallet.to_descriptor().replace("sortedmulti(2,", "sortedmulti(1,").split("#")[0] + "\n")
     assert audit_cli.main(["-w", "watch", "snapshot", "-d", str(other), "-o", str(tmp_path / "x")]) == 2  # not the node's descriptor
     assert "not one of the node wallet" in capsys.readouterr().err
     capsys.readouterr()

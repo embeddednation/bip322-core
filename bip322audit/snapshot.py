@@ -113,7 +113,9 @@ def coins_from_scantxoutset(cli: BitcoinCli, wallet: Wallet, stamp: Stamp, *, sc
         derived = _locate(wallet, address, u.get("desc"), scan_range) if address else None
         if derived is None:
             continue
-        by_address.setdefault(derived.address, AddressCoins(derived)).utxos.append(Utxo(u["txid"], int(u["vout"]), to_sat(u["amount"]), int(u["height"])))
+        by_address.setdefault(derived.address, AddressCoins(derived)).utxos.append(
+            Utxo(u["txid"], int(u["vout"]), to_sat(u["amount"]), int(u["height"]))
+        )
     return _sorted(by_address)
 
 
@@ -172,7 +174,11 @@ def wallet_from_node(cli: BitcoinCli, chain: str | None = None) -> Wallet:
     if len(families) == 1:
         return next(iter(families.values()))
     if not families:
-        raise RpcError("the node wallet has no wsh(multi/sortedmulti) or wpkh descriptor" + (f" (found: {', '.join(unsupported)})" if unsupported else "") + "; pass --descriptor")
+        raise RpcError(
+            "the node wallet has no wsh(multi/sortedmulti) or wpkh descriptor"
+            + (f" (found: {', '.join(unsupported)})" if unsupported else "")
+            + "; pass --descriptor"
+        )
     raise RpcError("the node wallet holds several descriptor families; pass --descriptor to choose: " + " | ".join(families))
 
 

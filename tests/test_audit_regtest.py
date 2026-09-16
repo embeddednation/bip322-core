@@ -48,7 +48,11 @@ def private_descriptors(masters):
         keys = []
         for j, m in enumerate(masters):
             account = m.derive("m/" + ORIGIN_PATH)
-            text = account.to_base58(NETWORKS["regtest"]["xprv"]) if j == holder else account.to_public().to_base58(NETWORKS["regtest"]["xpub"])
+            text = (
+                account.to_base58(NETWORKS["regtest"]["xprv"])
+                if j == holder
+                else account.to_public().to_base58(NETWORKS["regtest"]["xpub"])
+            )
             keys.append(f"[{m.my_fingerprint.hex()}/{ORIGIN_PATH}]{text}/<0;1>/*")
         out.append("wsh(sortedmulti(2," + ",".join(keys) + "))")
     return out
@@ -112,7 +116,13 @@ def test_audit_workflow_on_regtest(core, regtest_wallet, signer_expressions, pri
     assert verify_message(a0, encode_simple(core_tx.vin[0].witness.items), snapshot.message.encode()).ok
 
     # ---- spend one output after the snapshot; the report says so and stays OK --- #
-    funded = watch.call("walletcreatefundedpsbt", [], [{mine_to: 0.2}], 0, {"subtractFeeFromOutputs": [0], "changeAddress": regtest_wallet.derive(5, 1).address})
+    funded = watch.call(
+        "walletcreatefundedpsbt",
+        [],
+        [{mine_to: 0.2}],
+        0,
+        {"subtractFeeFromOutputs": [0], "changeAddress": regtest_wallet.derive(5, 1).address},
+    )
     signed = node.call("descriptorprocesspsbt", funded["psbt"], private_descriptors[:2])
     assert signed["complete"]
     node.call("sendrawtransaction", signed["hex"])

@@ -111,7 +111,12 @@ def _check_utxo(cli: BitcoinCli, tip_height: int, stamp: Stamp, address: str, ut
                 "confirmations": int(out["confirmations"]),
             }
         )
-        matches = row["node_amount_sat"] == utxo["amount_sat"] and row["node_address"] == address and created == utxo["height"] and created <= stamp.height
+        matches = (
+            row["node_amount_sat"] == utxo["amount_sat"]
+            and row["node_address"] == address
+            and created == utxo["height"]
+            and created <= stamp.height
+        )
         row["verified"] = matches
         row["contradiction"] = not matches
         if not matches:
@@ -131,7 +136,9 @@ def _check_utxo(cli: BitcoinCli, tip_height: int, stamp: Stamp, address: str, ut
             if created == utxo["height"] and created <= stamp.height:
                 row["status"] = "spent_after_snapshot"
                 row["verified"] = True
-                row["note"] = "existed at the snapshot block and has been spent since (that it was unspent at the snapshot cannot be shown without a spend index)"
+                row["note"] = (
+                    "existed at the snapshot block and has been spent since (that it was unspent at the snapshot cannot be shown without a spend index)"
+                )
             else:
                 row["status"] = "created_after_snapshot"
                 row["contradiction"] = True
@@ -149,7 +156,15 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
     if document.get("message_hex") and document.get("message") is not None and message != document["message"].encode("utf-8"):
         raise AuditError("proofs.json is inconsistent: 'message' and 'message_hex' differ")
     stamp = parse_stamp(message)
-    report: dict = {"tool": TOOL, "verified_utc": _now(), "engines": engines, "proofs": [], "stamp": None, "node": None, "document_problems": []}
+    report: dict = {
+        "tool": TOOL,
+        "verified_utc": _now(),
+        "engines": engines,
+        "proofs": [],
+        "stamp": None,
+        "node": None,
+        "document_problems": [],
+    }
     if stamp is not None and document.get("stamp") and Stamp.from_dict(document["stamp"]) != stamp:
         report["document_problems"].append("the stamp recorded in proofs.json differs from the stamp inside the signed message")
     wallet = _document_wallet(document, report)
@@ -174,12 +189,21 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
     for proof in document["proofs"]:
         address = proof["address"]
         verdict = verify_message(address, proof["signature"], message, engines=engines)
-        row = {"address": address, "branch": proof.get("branch"), "index": proof.get("index"), "bip322": verdict.to_dict(), "utxos": [], "claimed_sat": proof["total_sat"]}
+        row = {
+            "address": address,
+            "branch": proof.get("branch"),
+            "index": proof.get("index"),
+            "bip322": verdict.to_dict(),
+            "utxos": [],
+            "claimed_sat": proof["total_sat"],
+        }
         row["bip322"].pop("message_utf8", None)
         row["bip322"].pop("message_hex", None)
         row["address_in_wallet"] = _address_in_wallet(wallet, proof)
         if row["address_in_wallet"] is False:
-            report["document_problems"].append(f"{address} is not branch {proof.get('branch')} index {proof.get('index')} of the declared wallet descriptor")
+            report["document_problems"].append(
+                f"{address} is not branch {proof.get('branch')} index {proof.get('index')} of the declared wallet descriptor"
+            )
         all_proofs_ok &= verdict.ok
         claimed += proof["total_sat"]
         if cli is not None and stamp is not None:
@@ -193,7 +217,9 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
                     unspent += checked["node_amount_sat"]
         else:
             row["utxos"] = [{**u, "status": "not checked (offline)"} for u in proof["utxos"]]
-        row["unspent_now_sat"] = sum(u.get("node_amount_sat", 0) for u in row["utxos"] if u.get("status") == "unspent" and u.get("verified"))
+        row["unspent_now_sat"] = sum(
+            u.get("node_amount_sat", 0) for u in row["utxos"] if u.get("status") == "unspent" and u.get("verified")
+        )
         report["proofs"].append(row)
 
     if cli is not None and scan:
@@ -201,8 +227,12 @@ def verify_proofs(document: dict, cli: BitcoinCli | None, *, engines=None, txind
 
     stamp_ok = bool(report["stamp"] and report["stamp"].get("ok"))
     online = cli is not None
-    report["totals"] = {"claimed_sat": claimed, "claimed_btc": btc(claimed),
-                        "verified_unspent_sat": unspent if online else None, "verified_unspent_btc": btc(unspent) if online else None}
+    report["totals"] = {
+        "claimed_sat": claimed,
+        "claimed_btc": btc(claimed),
+        "verified_unspent_sat": unspent if online else None,
+        "verified_unspent_btc": btc(unspent) if online else None,
+    }
     report["summary"] = {
         "proofs_valid": all_proofs_ok,
         "stamp_ok": stamp_ok if online else None,
@@ -298,7 +328,10 @@ def format_report(report: dict) -> str:
     if st.get("stamp"):
         s = st["stamp"]
         status = "ok" if st.get("ok") else ("not checked" if st.get("ok") is None else f"FAILED ({st.get('error') or 'mismatch'})")
-        lines.append(f"stamp: block {s['height']} {s['hash'][:16]}... {s['time']}  ->  {status}" + (f", {st['confirmations']} confirmations" if st.get("confirmations") else ""))
+        lines.append(
+            f"stamp: block {s['height']} {s['hash'][:16]}... {s['time']}  ->  {status}"
+            + (f", {st['confirmations']} confirmations" if st.get("confirmations") else "")
+        )
     else:
         lines.append("stamp: none")
     lines.append("")
@@ -307,14 +340,21 @@ def format_report(report: dict) -> str:
         lines.append(f"{p['address']}  (branch {p['branch']}, index {p['index']})  bip322: {v['state'].upper()}")
         for u in p["utxos"]:
             mark = "ok" if u.get("verified") else ("!!" if u.get("contradiction") else "--")
-            lines.append(f"    [{mark}] {u['txid'][:16]}...:{u['vout']}  {btc(u['amount_sat']):>14} BTC  {u['status']}" + (f"  ({u['problem']})" if u.get("problem") else ""))
+            lines.append(
+                f"    [{mark}] {u['txid'][:16]}...:{u['vout']}  {btc(u['amount_sat']):>14} BTC  {u['status']}"
+                + (f"  ({u['problem']})" if u.get("problem") else "")
+            )
         lines.append(f"    claimed {btc(p['claimed_sat'])} BTC" + (f", unspent now {btc(p['unspent_now_sat'])} BTC" if node else ""))
     lines.append("")
     t = report["totals"]
-    lines.append(f"totals: claimed {btc(t['claimed_sat'])} BTC" + (f", verified unspent now {btc(t['verified_unspent_sat'])} BTC" if node else ""))
+    lines.append(
+        f"totals: claimed {btc(t['claimed_sat'])} BTC" + (f", verified unspent now {btc(t['verified_unspent_sat'])} BTC" if node else "")
+    )
     if report.get("current_holdings"):
         h = report["current_holdings"]
-        lines.append(f"current holdings at height {h['height']} ({h['scanned']}): {btc(h['total_sat'])} BTC across {len(h['by_address_sat'])} address(es)")
+        lines.append(
+            f"current holdings at height {h['height']} ({h['scanned']}): {btc(h['total_sat'])} BTC across {len(h['by_address_sat'])} address(es)"
+        )
         if h.get("unproven"):
             lines.append(f"  !! {btc(h['unproven_sat'])} BTC at {len(h['unproven'])} funded address(es) not covered by any proof:")
             for a, v in h["unproven"].items():
@@ -322,7 +362,9 @@ def format_report(report: dict) -> str:
     for problem in report.get("document_problems", []):
         lines.append(f"!! document: {problem}")
     s = report["summary"]
-    lines.append(f"proofs valid: {s['proofs_valid']}; stamp ok: {s['stamp_ok']}; document consistent: {s['document_consistent']}; outputs verified at snapshot: {s['utxos_verified_at_snapshot']}; contradictions: {s['contradictions']}; all still unspent: {s['all_utxos_still_unspent']}")
+    lines.append(
+        f"proofs valid: {s['proofs_valid']}; stamp ok: {s['stamp_ok']}; document consistent: {s['document_consistent']}; outputs verified at snapshot: {s['utxos_verified_at_snapshot']}; contradictions: {s['contradictions']}; all still unspent: {s['all_utxos_still_unspent']}"
+    )
     lines.append("RESULT: " + ("OK" if report["ok"] else "FAILED"))
     return "\n".join(lines)
 
