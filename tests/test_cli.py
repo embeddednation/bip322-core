@@ -41,7 +41,10 @@ def test_cli_roundtrip(tmp_path, wallet, signer_expressions, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["state"] == "valid"
     assert all(e["version"] for e in out["engines"])
-    assert any(e["engine"] == "kernel" and e["bindings"].startswith("py-bitcoinkernel") for e in out["engines"]) or "kernel" not in out["engines"]
+    assert (
+        any(e["engine"] == "kernel" and e["bindings"].startswith("py-bitcoinkernel") for e in out["engines"])
+        or "kernel" not in out["engines"]
+    )
 
 
 def test_cli_rejects_one_signature(tmp_path, wallet, descriptor_text, signer_expressions, capsys):
@@ -322,4 +325,38 @@ def test_cli_decodesignature_taproot(capsys):
     out = json.loads(capsys.readouterr().out)
     roles = [w["role"] for w in out["to_sign"]["inputs"][0]["witness"]]
     assert roles[-1] == "taproot control block" and roles[-2] == "tapscript" and roles[0].startswith("Schnorr signature")
-    assert "OP_CHECKLOCKTIMEVERIFY" in out["to_sign"]["inputs"][0]["witness"][-2]["asm"] or "OP_CHECKSEQUENCEVERIFY" in out["to_sign"]["inputs"][0]["witness"][-2]["asm"]
+    assert (
+        "OP_CHECKLOCKTIMEVERIFY" in out["to_sign"]["inputs"][0]["witness"][-2]["asm"]
+        or "OP_CHECKSEQUENCEVERIFY" in out["to_sign"]["inputs"][0]["witness"][-2]["asm"]
+    )
+
+
+def test_bip322_dispatches_to_extensions_git_style(tmp_path, monkeypatch, capsys):
+    """``bip322 NAME ...`` runs ``bip322-NAME ...`` found next to the program or on PATH; built-ins win; unknown names fail."""
+    import os
+    import sys
+
+    from bip322core.cli import extension_path, list_extensions, main
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "bip322-audit").write_text("#!/bin/sh\necho audit\n")
+    (bindir / "bip322-audit").chmod(0o755)
+    (bindir / "bip322-notexec").write_text("#!/bin/sh\n")  # not executable: ignored
+    monkeypatch.setenv("PATH", str(bindir))
+    monkeypatch.setattr(sys, "argv", [str(tmp_path / "elsewhere" / "bip322")])
+    assert list_extensions("bip322") == ["audit"] and extension_path("bip322", "audit") == str(bindir / "bip322-audit")
+    assert extension_path("bip322", "../etc") is None and extension_path("bip322", "") is None
+    calls = []
+    monkeypatch.setattr(os, "execv", lambda path, args: calls.append((path, args)) or (_ for _ in ()).throw(SystemExit(0)))
+    with pytest.raises(SystemExit):
+        main(["audit", "verify", "proofs.json", "--offline"])
+    assert calls == [(str(bindir / "bip322-audit"), [str(bindir / "bip322-audit"), "verify", "proofs.json", "--offline"])]
+    with pytest.raises(SystemExit):
+        main(["help", "audit"])  # forwarded as `bip322-audit help`
+    assert calls[-1][1][1:] == ["help"]
+    assert main(["help"]) == 0 and "Extensions (bip322 NAME ...): audit" in capsys.readouterr().out
+    assert main(["engines"]) == 0  # a built-in is never dispatched
+    with pytest.raises(SystemExit) as exc:
+        main(["nosuch", "x"])  # no extension: argparse's usual error
+    assert exc.value.code == 2

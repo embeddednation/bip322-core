@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 (2026-09-17)
+
+- `bip322 NAME ...` runs `bip322-NAME ...`, git style: `bip322 audit verify`,
+  `bip322 reports report`, `bip322 dev keygen`. The core looks the program
+  up next to itself or on PATH and hands the process over; nothing comes
+  back, so it still never reads another program's output. `bip322 help`
+  lists the extensions it finds; `bip322 help NAME` forwards to them.
+
 ## 0.5.1 (2026-09-17)
 
 - `help COMMAND` expands argparse placeholders such as `%(default)s` in option help.

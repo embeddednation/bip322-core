@@ -128,7 +128,16 @@ pins exact versions with sha256 hashes; install with
 mangles transaction version 0 and sequence 0 (`or`-defaults); `BIP322PSBT`
 overrides both, and a test guards it.
 
-## 9. The audit tool
+## 9. Extensions
+
+`bip322 NAME ...` executes `bip322-NAME ...` when NAME is not a built-in
+command (git, cargo and kubectl work the same way). The lookup is a file
+next to the running program, then PATH; the hand-over is `execv`, so the
+core process is replaced and never reads the extension's output. The audit
+and reports packages are reached this way; so are `bip322-dev` and
+`bip322-refcheck`.
+
+## 10. The audit tool
 
 The proof-of-control workflow (`bip322-audit`: snapshot, finalize, verify)
 lives in its own repository, https://github.com/embeddednation/bip322-audit,
@@ -136,7 +145,7 @@ and uses this package as a library. Everything that talks to a node is there.
 A test here asserts that `bip322core/` never imports it, nor subprocesses,
 sockets or HTTP.
 
-## 10. Test evidence
+## 11. Test evidence
 
 * `tests/`: 150+ cases including every official BIP-322 vector (basic and
   generated: P2WPKH, P2WSH 2-of-2/3-of-3, P2TR, P2SH-wrapped, time locks,

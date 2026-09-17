@@ -15,6 +15,7 @@ Three independent things live here:
 | `bip322core/` | The tool: build the BIP-322 PSBT from a wallet descriptor, combine cosigner PSBTs, finalize, encode, verify. Command `bip322`; distribution `bip322-core`, import `bip322core`. No private keys pass through it. |
 | `bip322core/dev/` | Scaffolding that handles private keys: dummy cosigners, wallet assembly, software signing. Command `bip322-dev`. Not needed with hardware cosigners; kept apart so the audited surface stays small. |
 | `tests/` | 120 pytest cases: the official BIP-322 vectors, a full 2-of-3 roundtrip for every signer pair, negatives, CLI. |
+| `bip322 NAME ...` | Runs `bip322-NAME ...` found next to the program or on PATH, git style, so the family below is one command: `bip322 audit verify`, `bip322 reports report`, `bip322 dev keygen`. |
 | [bip322-audit](https://github.com/embeddednation/bip322-audit) | The proof-of-control workflow (snapshot, finalize, verify) that talks to a node. Its own repository and distribution; depends on this package. |
 | [bip322-reports](https://github.com/embeddednation/bip322-reports) | Balance reports for a period in which every coin is backed by a verified proof from a ledger of bip322-audit bundles. Depends on bip322-audit. |
 | `refcheck/` | Cross-checks against the reference implementations: btcd's `bip322` package, Bitcoin Knots' `verifymessage`, Bitcoin Core 31.1 as signer/finalizer, and btclib. Command `bip322-refcheck` (needs the downloaded binaries). |

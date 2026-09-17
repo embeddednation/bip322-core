@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -189,6 +191,48 @@ def format_command_help(prog: str, name: str, parser: argparse.ArgumentParser) -
     return "\n".join(lines).rstrip() + "\n"
 
 
+# --------------------------------------------------------------------------- #
+# extensions: ``bip322 NAME ...`` runs ``bip322-NAME ...`` (git style)
+# --------------------------------------------------------------------------- #
+
+
+def extension_path(prog: str, name: str) -> str | None:
+    """The executable behind ``prog NAME``: ``prog-NAME`` next to this program, else on PATH."""
+    if not name or not name.replace("-", "").replace("_", "").isalnum() or name.startswith("-"):
+        return None
+    candidate = Path(sys.argv[0]).resolve().parent / f"{prog}-{name}"
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    return shutil.which(f"{prog}-{name}")
+
+
+def list_extensions(prog: str) -> list[str]:
+    """Names of the ``prog-*`` executables reachable as ``prog NAME``."""
+    dirs = [str(Path(sys.argv[0]).resolve().parent)] + (os.environ.get("PATH") or "").split(os.pathsep)
+    found: dict[str, None] = {}
+    for d in dirs:
+        try:
+            for entry in sorted(os.listdir(d)):
+                if entry.startswith(f"{prog}-") and os.access(os.path.join(d, entry), os.X_OK):
+                    found.setdefault(entry[len(prog) + 1 :], None)
+        except OSError:
+            continue
+    return list(found)
+
+
+def dispatch_extension(prog: str, argv: list[str], known: set[str]) -> None:
+    """Replace this process with ``prog-NAME`` when ``argv`` starts with a name that is not a built-in command.
+
+    Nothing comes back: the extension owns the process from here on, so the
+    core never reads another program's output.
+    """
+    if not argv or argv[0].startswith("-") or argv[0] in known:
+        return
+    path = extension_path(prog, argv[0])
+    if path:
+        os.execv(path, [path, *argv[1:]])
+
+
 def add_help_command(prog: str, sub: argparse._SubParsersAction, groups: dict[str, list[str]]) -> None:  # noqa: SLF001
     """Register ``help [command]`` on ``sub`` (call after every other command is added)."""
     p = sub.add_parser("help", help="list commands, or show one command's syntax, options and examples")
@@ -197,7 +241,12 @@ def add_help_command(prog: str, sub: argparse._SubParsersAction, groups: dict[st
     def cmd_help(args) -> int:
         if not args.name:
             print(format_help_listing(prog, sub, groups))
+            extensions = [e for e in list_extensions(prog) if e not in sub.choices]
+            if extensions:
+                print(f"\nExtensions ({prog} NAME ...): " + ", ".join(extensions) + f'. Use "{prog} NAME help".')
             return 0
+        if args.name not in sub.choices and extension_path(prog, args.name):
+            os.execv(extension_path(prog, args.name), [extension_path(prog, args.name), "help"])
         if args.name not in sub.choices:
             raise CLIError(f"unknown command {args.name!r}; try '{prog} help'")
         sys.stdout.write(format_command_help(prog, args.name, sub.choices[args.name]))
@@ -771,6 +820,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
+    argv = list(sys.argv[1:] if argv is None else argv)
+    dispatch_extension("bip322", argv, set(_subcommands(parser)))
     args = parser.parse_args(argv)
     try:
         return args.func(args)
@@ -780,6 +831,13 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         print(f"error: {exc.strerror or exc}: {exc.filename}" if getattr(exc, "filename", None) else f"error: {exc}", file=sys.stderr)
         return 2
+
+
+def _subcommands(parser: argparse.ArgumentParser) -> list[str]:
+    for action in parser._actions:  # noqa: SLF001
+        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            return list(action.choices)
+    return []
 
 
 if __name__ == "__main__":  # pragma: no cover
