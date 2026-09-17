@@ -24,7 +24,7 @@ from .core import (
     parse_transaction,
     parse_witness,
 )
-from .engines import available_engines, engine_labels, engine_versions
+from .engines import available_engines, engine_versions
 from .psbt import (
     BIP322PSBT,
     combine_psbts,
@@ -454,22 +454,38 @@ def cmd_verify(args) -> int:
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
     else:
-        state = result.state.value.upper()
-        if result.state is State.VALID:
-            print(state if result.reason == "valid" else f"{state} ({result.reason})")
-        elif result.state is State.INVALID and result.engines:
-            print(state)  # the engine lines below say why
-        else:
-            print(f"{state}: {result.reason}")
-        names = engine_labels()
-        labels = {
-            "btclib-required": f"{names['btclib']}, consensus + BIP-322 required rules",
-            "kernel": f"{names.get('kernel', 'Bitcoin Core kernel')}, consensus rules",
-            "btclib-upgradeable": f"{names['btclib']}, + upgradeable rules",
-        }
-        for run in result.engines:
-            print(f"  [{labels.get(run.engine, run.engine)}] {'ok' if run.ok else 'FAIL: ' + str(run.error)}")
+        print(format_verify_text(result.to_dict()))
     return EXIT_BY_STATE[result.state]
+
+
+def format_verify_text(verdict: dict) -> str:
+    """The text ``verifymessage`` prints for a verdict (``VerifyResult.to_dict()``): the state, then one line per engine.
+
+    Public so that documents quoting the command can show its exact output.
+    """
+    state = str(verdict["state"]).upper()
+    reason = verdict.get("reason") or ""
+    runs = verdict.get("engines") or []
+    if state == "VALID":
+        first = state if reason == "valid" else f"{state} ({reason})"
+    elif state == "INVALID" and runs:
+        first = state  # the engine lines below say why
+    else:
+        first = f"{state}: {reason}"
+    lines = [first]
+    for run in runs:
+        version = run.get("version") or "?"
+        engine = run.get("engine", "")
+        if engine == "btclib-required":
+            label = f"btclib {version}, consensus + BIP-322 required rules"
+        elif engine == "kernel":
+            label = f"Bitcoin Core kernel {version} (py-bitcoinkernel {run.get('bindings') or '?'}), consensus rules"
+        elif engine == "btclib-upgradeable":
+            label = f"btclib {version}, + upgradeable rules"
+        else:
+            label = engine
+        lines.append(f"  [{label}] {'ok' if run.get('ok') else 'FAIL: ' + str(run.get('error'))}")
+    return "\n".join(lines)
 
 
 #: verifymessage exit codes: 0 valid, 1 invalid, 3 inconclusive (2 = usage/IO error)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1 (2026-09-17)
+
+- `bip322core.cli.format_verify_text(verdict)`: the exact text `verifymessage` prints, public so a statement can quote the command's output.
+
 ## 0.6.0 (2026-09-17)
 
 - `bip322 NAME ...` runs `bip322-NAME ...`, git style: `bip322 audit verify`,
