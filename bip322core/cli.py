@@ -36,7 +36,7 @@ from .psbt import (
     parse_psbt,
     signature_from_psbt,
 )
-from .verify import State, check_signers, verify_message
+from .verify import State, check_signers, describe_address, verify_message
 from .wallet import Wallet, wallet_from_file
 
 
@@ -530,6 +530,28 @@ def cmd_checksigners(args) -> int:
     return 0 if report["ok"] else 1
 
 
+def cmd_validateaddress(args) -> int:
+    """Like Bitcoin Core's validateaddress, without a node: the scriptPubKey an address encodes."""
+    info = describe_address(args.address)
+    emit(json.dumps(info, indent=2) if args.json else format_address_text(info), args.output)
+    return 0
+
+
+def format_address_text(info: dict) -> str:
+    """The text ``validateaddress`` prints: the address, the scriptPubKey it is, and what that script is."""
+    names = {"p2wsh": "P2WSH", "p2wpkh": "P2WPKH", "p2tr": "P2TR (taproot)", "p2pkh": "P2PKH (legacy)", "p2sh": "P2SH (legacy)"}
+    lines = [f"address       {info['address']}", f"scriptPubKey  {info['scriptPubKey']}  ({info['bytes']} bytes)"]
+    kind = names.get(info["type"], info["type"])
+    if "witness_version" in info:
+        detail = f"witness version {info['witness_version']}, {len(info['witness_program']) // 2}-byte program"
+        if info.get("program_is"):
+            detail += f" = {info['program_is']}"
+        lines.append(f"type          {kind}: {detail}")
+    else:
+        lines.append(f"type          {kind}")
+    return "\n".join(lines)
+
+
 def cmd_decodesignature(args) -> int:
     """Open a proof string into its parts, like Core's decoderawtransaction."""
     text = sys.stdin.read() if args.signature == "-" else args.signature
@@ -853,6 +875,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.epilog = "exit codes: 0 valid, 1 invalid, 3 inconclusive, 2 error"
 
+    p = sub.add_parser("validateaddress", help="the scriptPubKey an address encodes, and what kind of script it is (no node, no wallet)")
+    p.add_argument("address", metavar="ADDRESS")
+    p.add_argument("--json", action="store_true", help="print JSON instead of text")
+    p.add_argument("--output", "-o", help="write the output here instead of stdout")
+    p.description = (
+        "Decode an address into the scriptPubKey it stands for: the script an output is locked to and a BIP-322 proof is made for. "
+        "Like Bitcoin Core's validateaddress, for any network's encoding, without a node."
+    )
+    p.set_defaults(func=cmd_validateaddress, examples=["validateaddress bc1q..."])
+
     p = sub.add_parser("decodesignature", help="open a proof string into its parts (witness stack, to_sign or PSBT)")
     p.add_argument("signature", help="an smp/ful/pof proof string, or - to read it from stdin")
     p.add_argument(
@@ -889,7 +921,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Wallet": ["wallet", "deriveaddresses", "getaddressinfo"],
             "PSBT": ["createpsbt", "analyzepsbt", "combinepsbt", "finalizepsbt"],
             "Verification": ["verifymessage", "checksigners"],
-            "Util": ["decodesignature", "lint-message", "engines", "help"],
+            "Util": ["validateaddress", "decodesignature", "lint-message", "engines", "help"],
         },
     )
     return parser

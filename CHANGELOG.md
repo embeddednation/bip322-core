@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0 (2026-09-17)
+
+- `validateaddress ADDRESS`: the scriptPubKey an address encodes and what
+  kind of script it is, without a node or a wallet (like Bitcoin Core's).
+  `bip322core.verify.describe_address` and `bip322core.cli.format_address_text`.
+
 ## 0.7.0 (2026-09-17)
 
 - `decodesignature --text`: each witness item named, and for a witness

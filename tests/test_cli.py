@@ -386,3 +386,22 @@ def test_cli_decodesignature_text_names_the_lock(wallet, masters, signer_express
     key = next(e for e in report["witness"] if e["role"] == "compressed public key")
     assert key["p2wpkh_scriptPubKey"] == single.derive(1).script_pubkey.hex() and key["p2wpkh_address"] == single.derive(1).address
     assert f"scriptPubKey  {single.derive(1).script_pubkey.hex()}  (P2WPKH" in format_decode_text(report)
+
+
+def test_cli_validateaddress_opens_an_address_into_its_script(wallet, capsys):
+    """The relation the statement rests on: an address is a scriptPubKey, encoded."""
+    from bip322core.cli import format_address_text
+    from bip322core.verify import describe_address
+
+    derived = wallet.derive(3)
+    info = describe_address(derived.address)
+    assert info["scriptPubKey"] == derived.script_pubkey.hex() and info["type"] == "p2wsh" and info["witness_version"] == 0
+    assert info["witness_program"] == derived.script_pubkey.hex()[4:] and "sha256" in info["program_is"]
+    text = format_address_text(info)
+    assert text.splitlines()[1] == f"scriptPubKey  {derived.script_pubkey.hex()}  (34 bytes)" and "P2WSH" in text
+    assert main(["validateaddress", derived.address]) == 0 and capsys.readouterr().out == text + "\n"
+    assert main(["validateaddress", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["type"] == "p2wpkh" and out["witness_program"] == "751e76e8199196d454941c45d1b3a323f1433bd6"
+    assert describe_address("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")["type"] == "p2pkh"
+    assert main(["validateaddress", "notanaddress"]) == 2

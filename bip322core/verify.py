@@ -129,6 +129,29 @@ def script_pubkey_from_address(address: str) -> bytes:
         raise SignatureFormatError(f"invalid address {address!r}: {exc}") from exc
 
 
+def describe_address(address: str) -> dict:
+    """An address opened into the scriptPubKey it encodes, and what kind of lock that is.
+
+    This is the whole relation between an address and the coins: an address is
+    a scriptPubKey, checksummed and encoded; an output is locked to a
+    scriptPubKey; a BIP-322 proof is made for a scriptPubKey.
+    """
+    spk = script_pubkey_from_address(address)
+    kind = Script(spk).script_type()
+    out = {"address": address.strip(), "scriptPubKey": spk.hex(), "bytes": len(spk), "type": kind}
+    if is_native_segwit(spk):
+        version = 0 if spk[0] == 0 else spk[0] - 0x50
+        program = spk[2:]
+        out.update({"witness_version": version, "witness_program": program.hex()})
+        if version == 0 and len(program) == 32:
+            out["type"], out["program_is"] = "p2wsh", "the sha256 of the witness script"
+        elif version == 0 and len(program) == 20:
+            out["type"], out["program_is"] = "p2wpkh", "the hash160 of the public key"
+        elif version == 1 and len(program) == 32:
+            out["type"], out["program_is"] = "p2tr", "the taproot output key"
+    return out
+
+
 def _legacy(address: str, spk: bytes, signature: str, message: bytes) -> VerifyResult:
     if Script(spk).script_type() != "p2pkh":
         return VerifyResult(State.INVALID, "legacy (BIP-137) signatures are only valid for P2PKH addresses", address, VARIANT_LEGACY)
