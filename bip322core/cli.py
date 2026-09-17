@@ -540,15 +540,15 @@ def cmd_validateaddress(args) -> int:
 def format_address_text(info: dict) -> str:
     """The text ``validateaddress`` prints: the address, the scriptPubKey it is, and what that script is."""
     names = {"p2wsh": "P2WSH", "p2wpkh": "P2WPKH", "p2tr": "P2TR (taproot)", "p2pkh": "P2PKH (legacy)", "p2sh": "P2SH (legacy)"}
-    lines = [f"address       {info['address']}", f"scriptPubKey  {info['scriptPubKey']}  ({info['bytes']} bytes)"]
+    lines = [f"address       {info['address']}", f"scriptPubKey  {info['scriptPubKey']}"]
     kind = names.get(info["type"], info["type"])
     if "witness_version" in info:
-        detail = f"witness version {info['witness_version']}, {len(info['witness_program']) // 2}-byte program"
+        detail = f"{info['bytes']} bytes: witness v{info['witness_version']}, {len(info['witness_program']) // 2}-byte program"
         if info.get("program_is"):
             detail += f" = {info['program_is']}"
-        lines.append(f"type          {kind}: {detail}")
+        lines.append(f"type          {kind}, {detail}")
     else:
-        lines.append(f"type          {kind}")
+        lines.append(f"type          {kind}, {info['bytes']} bytes")
     return "\n".join(lines)
 
 

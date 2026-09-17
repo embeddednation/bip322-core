@@ -398,7 +398,7 @@ def test_cli_validateaddress_opens_an_address_into_its_script(wallet, capsys):
     assert info["scriptPubKey"] == derived.script_pubkey.hex() and info["type"] == "p2wsh" and info["witness_version"] == 0
     assert info["witness_program"] == derived.script_pubkey.hex()[4:] and "sha256" in info["program_is"]
     text = format_address_text(info)
-    assert text.splitlines()[1] == f"scriptPubKey  {derived.script_pubkey.hex()}  (34 bytes)" and "P2WSH" in text
+    assert text.splitlines()[1] == f"scriptPubKey  {derived.script_pubkey.hex()}" and "P2WSH, 34 bytes" in text
     assert main(["validateaddress", derived.address]) == 0 and capsys.readouterr().out == text + "\n"
     assert main(["validateaddress", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "--json"]) == 0
     out = json.loads(capsys.readouterr().out)

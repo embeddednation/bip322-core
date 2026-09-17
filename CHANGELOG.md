@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1 (2026-09-17)
+
+- `validateaddress` text: the byte count on the type line, so the scriptPubKey line is the bytes alone.
+
 ## 0.8.0 (2026-09-17)
 
 - `validateaddress ADDRESS`: the scriptPubKey an address encodes and what
