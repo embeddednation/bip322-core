@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0 (2026-09-17)
+
+- `decodesignature --text`: each witness item named, and for a witness
+  script its sha256, the P2WSH scriptPubKey and address; for a bare key its
+  hash160, the P2WPKH scriptPubKey and address. The derivation from the keys
+  in a proof to the script coins are locked to, as a statement shows it.
+  `bip322core.cli.decode_signature_report` and `format_decode_text` are
+  public for the same reason.
+
 ## 0.6.2 (2026-09-17)
 
 - `bip322core.cli.format_verify_text(verdict)`: the exact text `verifymessage` prints, public so a statement can quote the command's output (0.6.1 doubled the bindings name in the kernel line).

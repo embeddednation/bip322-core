@@ -360,3 +360,29 @@ def test_bip322_dispatches_to_extensions_git_style(tmp_path, monkeypatch, capsys
     with pytest.raises(SystemExit) as exc:
         main(["nosuch", "x"])  # no extension: argparse's usual error
     assert exc.value.code == 2
+
+
+def test_cli_decodesignature_text_names_the_lock(wallet, masters, signer_expressions, capsys):
+    """--text shows the derivation the statement relies on: witness script (or key) -> hash -> scriptPubKey -> address."""
+    from bip322core.cli import decode_signature_report, format_decode_text
+    from bip322core.psbt import signature_from_psbt
+    from bip322core.wallet import Wallet
+    from tests.helpers import finalized_psbt
+
+    psbt = finalized_psbt(wallet, signer_expressions[:2], b"decode me", index=2)
+    derived = wallet.derive(2)
+    assert main(["decodesignature", signature_from_psbt(psbt), "--text"]) == 0
+    text = capsys.readouterr().out
+    assert text.startswith("smp: the witness stack of to_sign input 0, 4 items\n[0] empty (CHECKMULTISIG dummy)\n[1] ECDSA signature")
+    assert f"scriptPubKey  {derived.script_pubkey.hex()}  (P2WSH" in text and f"address       {derived.address}  (the scriptPubKey" in text
+    assert text == format_decode_text(decode_signature_report(signature_from_psbt(psbt), "main")) + "\n"
+
+    master = masters[1]
+    account = master.derive("m/84h/0h/0h")
+    single = Wallet.from_descriptor(f"wpkh([{master.my_fingerprint.hex()}/84h/0h/0h]{account.to_public().to_base58()}/<0;1>/*)")
+    signer = f"[{master.my_fingerprint.hex()}/84h/0h/0h]{account.to_base58()}/<0;1>/*"
+    single_psbt = finalized_psbt(single, [signer], b"decode me", index=1)
+    report = decode_signature_report(signature_from_psbt(single_psbt), "main")
+    key = next(e for e in report["witness"] if e["role"] == "compressed public key")
+    assert key["p2wpkh_scriptPubKey"] == single.derive(1).script_pubkey.hex() and key["p2wpkh_address"] == single.derive(1).address
+    assert f"scriptPubKey  {single.derive(1).script_pubkey.hex()}  (P2WPKH" in format_decode_text(report)

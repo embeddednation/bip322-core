@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -532,9 +533,22 @@ def cmd_checksigners(args) -> int:
 def cmd_decodesignature(args) -> int:
     """Open a proof string into its parts, like Core's decoderawtransaction."""
     text = sys.stdin.read() if args.signature == "-" else args.signature
+    out = decode_signature_report(text, _network(args) or "main")
+    emit(format_decode_text(out) if args.text else json.dumps(out, indent=2), args.output)
+    return 0
+
+
+def decode_signature_report(text: str, network_name: str = "main") -> dict:
+    """A proof string opened into its parts (what ``decodesignature`` prints as JSON).
+
+    Every witness script comes with its sha256, the P2WSH scriptPubKey that
+    hash makes, and that scriptPubKey's address; every public key with its
+    hash160, the P2WPKH scriptPubKey and address.  That is the derivation from
+    the keys in the proof to the script the coins are locked to.
+    """
     decoded = decode_signature(text)
     out: dict = {"variant": decoded.variant, "prefixed": decoded.prefixed, "payload_bytes": len(decoded.payload)}
-    network = NETWORKS[_network(args) or "main"]
+    network = NETWORKS[network_name]
 
     def with_address(elements: list[dict]) -> list[dict]:
         from embit.script import Script
@@ -542,6 +556,11 @@ def cmd_decodesignature(args) -> int:
         for e in elements:
             if "p2wsh_scriptPubKey" in e:
                 e["p2wsh_address"] = Script(bytes.fromhex(e["p2wsh_scriptPubKey"])).address(network)
+            elif e.get("role") == "compressed public key":
+                digest = hashlib.new("ripemd160", hashlib.sha256(bytes.fromhex(e["hex"])).digest()).digest()
+                e["hash160"] = digest.hex()
+                e["p2wpkh_scriptPubKey"] = (b"\x00\x14" + digest).hex()
+                e["p2wpkh_address"] = Script(bytes.fromhex(e["p2wpkh_scriptPubKey"])).address(network)
         return elements
 
     if decoded.variant == PREFIX_SIMPLE:
@@ -570,7 +589,7 @@ def cmd_decodesignature(args) -> int:
     elif decoded.variant == PREFIX_POF:
         psbt = parse_psbt(decoded.payload)
         tx = psbt.tx
-        out["psbt"] = {
+        out["psbt"] = {  # noqa: F841 - built below
             "inputs": [
                 {
                     "txid": inp.txid.hex(),
@@ -586,8 +605,45 @@ def cmd_decodesignature(args) -> int:
     else:
         out["note"] = "65-byte payload: a legacy BIP-137 signature (recoverable ECDSA), P2PKH only"
         out["hex"] = decoded.payload.hex()
-    emit(json.dumps(out, indent=2), args.output)
-    return 0
+    return out
+
+
+def format_decode_text(out: dict) -> str:
+    """The text ``decodesignature --text`` prints: each witness item with what it is, and for a script or key the lock it names."""
+
+    def items(elements: list[dict]) -> list[str]:
+        lines = []
+        for e in elements:
+            head = f"[{e['index']}] {e['role']}"
+            if "sighash" in e:
+                head += f", sighash {e['sighash']}" + (" (ALL)" if e["sighash"] == 1 else "")
+            if e.get("bytes"):
+                head += f", {e['bytes']} bytes"
+            lines.append(head)
+            if e.get("asm"):
+                lines.append(f"    {e['asm']}")
+            elif e.get("hex"):
+                lines.append(f"    {e['hex']}")
+            if "sha256" in e:
+                lines.append(f"    sha256        {e['sha256']}")
+                lines.append(f"    scriptPubKey  {e['p2wsh_scriptPubKey']}  (P2WSH: OP_0 <sha256 of the witness script>)")
+                if e.get("p2wsh_address"):
+                    lines.append(f"    address       {e['p2wsh_address']}  (the scriptPubKey, bech32 encoded)")
+            if "hash160" in e:
+                lines.append(f"    hash160       {e['hash160']}")
+                lines.append(f"    scriptPubKey  {e['p2wpkh_scriptPubKey']}  (P2WPKH: OP_0 <hash160 of the key>)")
+                lines.append(f"    address       {e['p2wpkh_address']}  (the scriptPubKey, bech32 encoded)")
+        return lines
+
+    if out["variant"] == PREFIX_SIMPLE:
+        return "\n".join([f"smp: the witness stack of to_sign input 0, {len(out['witness'])} items", *items(out["witness"])])
+    if out["variant"] == PREFIX_FULL:
+        lines = [f"ful: to_sign {out['to_sign']['txid']}, version {out['to_sign']['version']}, {len(out['to_sign']['inputs'])} input(s)"]
+        for i, vin in enumerate(out["to_sign"]["inputs"]):
+            lines.append(f"input {i}: {vin['txid']}:{vin['vout']}")
+            lines.extend("  " + line for line in items(vin["witness"]))
+        return "\n".join(lines)
+    return json.dumps(out, indent=2)
 
 
 def cmd_lint(args) -> int:
@@ -802,7 +858,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--network", choices=sorted(NETWORKS), default=None, help="network for the address a witness script commits to (default: main)"
     )
-    p.add_argument("--output", "-o", help="write the JSON here instead of stdout")
+    p.add_argument(
+        "--text",
+        action="store_true",
+        help="print text instead of JSON: each witness item, and the scriptPubKey and address a witness script or key names",
+    )
+    p.add_argument("--output", "-o", help="write the output here instead of stdout")
     p.description = (
         "Decode a BIP-322 signature: for smp the witness stack (each element labelled: dummy, signatures with their "
         "sighash byte, the witness script disassembled), for ful the whole to_sign transaction, for pof the finalized PSBT. "
