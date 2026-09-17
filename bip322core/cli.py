@@ -137,7 +137,10 @@ def _options(parser: argparse.ArgumentParser) -> list[tuple[str, str]]:
             flags += " " + (action.metavar if isinstance(action.metavar, str) else " ".join(action.metavar))
         elif action.nargs != 0 and action.dest:
             flags += " " + action.dest.upper()
-        rows.append((flags, action.help or ""))
+        help_text = action.help or ""
+        if "%(" in help_text:  # argparse's own placeholders, e.g. %(default)s
+            help_text = help_text % {**vars(action), "prog": parser.prog}
+        rows.append((flags, help_text))
     return rows
 
 

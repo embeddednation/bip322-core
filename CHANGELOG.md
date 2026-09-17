@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 (2026-09-17)
+
+- `help COMMAND` expands argparse placeholders such as `%(default)s` in option help.
+
 ## 0.5.0 (2026-09-16)
 
 - The audit workflow moved to its own repository and distribution,

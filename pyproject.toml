@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bip322-core"
-version = "0.5.0"
+version = "0.5.1"
 description = "BIP-322 message signing and verification for descriptor wallets (P2WSH multisig, P2WPKH): PSBTs for hardware signers, finalization, a verifier cross-checked against btcd, Knots, Core and btclib"
 requires-python = ">=3.10"
 license = "MIT"
