@@ -479,7 +479,7 @@ def format_verify_text(verdict: dict) -> str:
         if engine == "btclib-required":
             label = f"btclib {version}, consensus + BIP-322 required rules"
         elif engine == "kernel":
-            label = f"Bitcoin Core kernel {version} (py-bitcoinkernel {run.get('bindings') or '?'}), consensus rules"
+            label = f"Bitcoin Core kernel {version} ({run.get('bindings') or 'py-bitcoinkernel ?'}), consensus rules"
         elif engine == "btclib-upgradeable":
             label = f"btclib {version}, + upgradeable rules"
         else:

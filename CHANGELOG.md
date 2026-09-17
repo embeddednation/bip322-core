@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.6.1 (2026-09-17)
+## 0.6.2 (2026-09-17)
 
-- `bip322core.cli.format_verify_text(verdict)`: the exact text `verifymessage` prints, public so a statement can quote the command's output.
+- `bip322core.cli.format_verify_text(verdict)`: the exact text `verifymessage` prints, public so a statement can quote the command's output (0.6.1 doubled the bindings name in the kernel line).
 
 ## 0.6.0 (2026-09-17)
 
