@@ -37,7 +37,7 @@ from bip322core.core import (  # noqa: E402
     parse_witness,
 )
 from bip322core.engines import available_engines  # noqa: E402
-from bip322core.verify import script_pubkey_from_address, verify_message  # noqa: E402
+from bip322core.verify import is_script_hex, script_pubkey_from_address, verify_message  # noqa: E402
 from refcheck.daemons import Daemon, RPCError  # noqa: E402
 from refcheck.run_refcheck import BTCD_BIN, CORE_DIR, KNOTS_DIR, OUT  # noqa: E402
 
@@ -153,7 +153,14 @@ def main(argv=None) -> int:
     parser.add_argument("--no-knots", action="store_true")
     parser.add_argument("--no-core", action="store_true")
     parser.add_argument("--no-btcd", action="store_true")
+    parser.add_argument("--network", default="main", help="when ADDRESS is a scriptPubKey as hex: the network whose address encoding the reference implementations get")
     args = parser.parse_args(argv)
+    if is_script_hex(args.address):  # the references take addresses; encode the same bytes for them
+        from embit.networks import NETWORKS
+        from embit.script import Script
+
+        script_hex, args.address = args.address, Script(bytes.fromhex(args.address)).address(NETWORKS[args.network])
+        print(f"scriptPubKey {script_hex} = address {args.address} ({args.network})", file=sys.stderr)
 
     expected = [n for n, f in (("signature", args.signature_file), ("message", args.message_file)) if not f]
     if len(args.values) != len(expected):

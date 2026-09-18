@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1 (2026-09-18)
+
+- `bip322-refcheck` takes a scriptPubKey as hex too (`--network` for the encoding), passing the reference implementations the address of the same bytes.
+
 ## 0.9.0 (2026-09-18)
 
 - `verifymessage` and `verify_message()` take the scriptPubKey as hex in
