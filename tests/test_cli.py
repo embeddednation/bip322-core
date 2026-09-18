@@ -266,7 +266,7 @@ def test_cli_help_command(capsys):
     assert main(["help"]) == 0
     out = capsys.readouterr().out
     assert "== Wallet ==" in out and "== PSBT ==" in out and "== Verification ==" in out
-    assert 'createpsbt "address" ( "message" )' in out and 'verifymessage "address" ( "signature" "message" )' in out
+    assert 'createpsbt "address" ( "message" )' in out and 'verifymessage "address|scriptpubkey" ( "signature" "message" )' in out
     assert 'deriveaddresses ( "index" | "start" "end" )' in out
     assert 'combinepsbt "psbt"...' in out and "help <command>" in out
     assert main(["help", "verifymessage"]) == 0

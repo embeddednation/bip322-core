@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 
+from embit.networks import NETWORKS
 from embit.script import Script, address_to_scriptpubkey
 from embit.transaction import Transaction
 
@@ -60,6 +61,7 @@ class VerifyResult:
     reason: str
     address: str = ""
     variant: str | None = None
+    script_pubkey: bytes | None = None  # the challenge actually verified (what the address encodes, or the bytes given)
     message: bytes = b""
     signature: str = ""
     to_spend_txid: str | None = None
@@ -85,6 +87,7 @@ class VerifyResult:
             "state": self.state.value,
             "reason": self.reason,
             "address": self.address,
+            "scriptPubKey": self.script_pubkey.hex() if self.script_pubkey else None,
             "message_utf8": self.message.decode("utf-8", errors="replace"),
             "message_hex": self.message.hex(),
             "signature": self.signature,
@@ -122,23 +125,39 @@ def _explain(error: str | None) -> str:
     return "script verification failed"
 
 
+def is_script_hex(text: str) -> bool:
+    """Does ``text`` look like a scriptPubKey given as hex rather than an address?"""
+    t = text.strip().lower()
+    return len(t) >= 8 and len(t) % 2 == 0 and all(c in "0123456789abcdef" for c in t)
+
+
 def script_pubkey_from_address(address: str) -> bytes:
+    """The challenge: the scriptPubKey an address encodes, or the scriptPubKey itself given as hex.
+
+    BIP-322 signs and verifies for a scriptPubKey ("the key script to be
+    proven"); an address is one way to hand it in, the bytes are the other.
+    """
+    if is_script_hex(address):
+        return bytes.fromhex(address.strip())
     try:
         return address_to_scriptpubkey(address.strip()).data
     except Exception as exc:  # noqa: BLE001
         raise SignatureFormatError(f"invalid address {address!r}: {exc}") from exc
 
 
-def describe_address(address: str) -> dict:
+def describe_address(address: str, network: str = "main") -> dict:
     """An address opened into the scriptPubKey it encodes, and what kind of lock that is.
 
     This is the whole relation between an address and the coins: an address is
     a scriptPubKey, checksummed and encoded; an output is locked to a
-    scriptPubKey; a BIP-322 proof is made for a scriptPubKey.
+    scriptPubKey; a BIP-322 proof is made for a scriptPubKey.  Given the hex
+    of a scriptPubKey instead, the address is the one that encodes it on
+    ``network``.
     """
     spk = script_pubkey_from_address(address)
     kind = Script(spk).script_type()
-    out = {"address": address.strip(), "scriptPubKey": spk.hex(), "bytes": len(spk), "type": kind}
+    shown = Script(spk).address(NETWORKS[network]) if is_script_hex(address) else address.strip()
+    out = {"address": shown, "scriptPubKey": spk.hex(), "bytes": len(spk), "type": kind}
     if is_native_segwit(spk):
         version = 0 if spk[0] == 0 else spk[0] - 0x50
         program = spk[2:]
@@ -191,6 +210,12 @@ def verify_message(
         decoded = decode_signature(signature, allow_unprefixed=allow_unprefixed)
     except SignatureFormatError as exc:
         return VerifyResult(State.INVALID, str(exc), address, message=message, signature=signature)
+    result = _verify_challenge(address, spk, decoded, signature, message, engines, allow_legacy)
+    result.script_pubkey = spk
+    return result
+
+
+def _verify_challenge(address, spk, decoded, signature, message, engines, allow_legacy) -> VerifyResult:
 
     if decoded.variant == VARIANT_LEGACY:
         if not allow_legacy:

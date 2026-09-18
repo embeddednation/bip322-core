@@ -126,7 +126,10 @@ def test_full_variant_versions_and_locktime(wallet, signer_expressions):
     r = verify_message(address, signature_from_psbt(psbt), MESSAGE)
     assert r.ok and r.locktime == 800000 and r.sequence == 10 and "800000" in r.reason
     # a witness made for version 0 must not verify inside a version 2 to_sign
-    derived, witness = wallet.derive(4), list(finalized_psbt(wallet, signer_expressions[:2], MESSAGE, index=4).inputs[0].final_scriptwitness.items)
+    derived, witness = (
+        wallet.derive(4),
+        list(finalized_psbt(wallet, signer_expressions[:2], MESSAGE, index=4).inputs[0].final_scriptwitness.items),
+    )
     txid = build_to_spend(MESSAGE, derived.script_pubkey).txid()
     assert verify_message(address, encode_full(build_to_sign(txid, witness=witness, version=2)), MESSAGE).state is State.INVALID
 
@@ -176,3 +179,21 @@ def test_all_requested_engines_run_on_failure(proof, kernel_engines):
         assert r.state is State.INVALID and "low-S" in r.reason
         by_name = {e.engine: e.ok for e in r.engines}
         assert by_name == {"btclib-required": False, "kernel": True}
+
+
+def test_verify_accepts_the_scriptpubkey_itself(wallet, signer_expressions, kernel_engines):
+    """BIP-322 proves a scriptPubKey; the address is one way to hand it in, the hex bytes are the other."""
+    from bip322core.verify import describe_address, is_script_hex
+    from tests.helpers import finalized_psbt
+
+    psbt = finalized_psbt(wallet, signer_expressions[:2], b"by script", index=4)
+    derived = wallet.derive(4)
+    spk_hex = derived.script_pubkey.hex()
+    assert is_script_hex(spk_hex) and not is_script_hex(derived.address)
+    by_address = verify_message(derived.address, signature_from_psbt(psbt), b"by script", engines=kernel_engines)
+    by_script = verify_message(spk_hex, signature_from_psbt(psbt), b"by script", engines=kernel_engines)
+    assert by_address.ok and by_script.ok and by_script.to_dict()["scriptPubKey"] == spk_hex == by_address.to_dict()["scriptPubKey"]
+    assert by_script.address == spk_hex
+    other = wallet.derive(5).script_pubkey.hex()
+    assert verify_message(other, signature_from_psbt(psbt), b"by script", engines=kernel_engines).state is State.INVALID
+    assert describe_address(spk_hex)["address"] == derived.address and describe_address(spk_hex, "regtest")["address"].startswith("bcrt1")

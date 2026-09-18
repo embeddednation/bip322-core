@@ -532,7 +532,7 @@ def cmd_checksigners(args) -> int:
 
 def cmd_validateaddress(args) -> int:
     """Like Bitcoin Core's validateaddress, without a node: the scriptPubKey an address encodes."""
-    info = describe_address(args.address)
+    info = describe_address(args.address, args.network or "main")
     emit(json.dumps(info, indent=2) if args.json else format_address_text(info), args.output)
     return 0
 
@@ -854,7 +854,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p = sub.add_parser("verifymessage", help="verify a BIP-322 signature (same argument order as Bitcoin Core's RPC)")
-    p.add_argument("address")
+    p.add_argument(
+        "address", metavar="ADDRESS|SCRIPTPUBKEY", help="the address, or the scriptPubKey it encodes as hex: BIP-322 proves a scriptPubKey"
+    )
     p.add_argument("values", nargs="*", metavar="SIGNATURE MESSAGE", help="the signature string and the message text")
     p.add_argument("--signature-file", metavar="FILE", help="read the signature from FILE instead of the SIGNATURE argument")
     _add_message_file(p)
@@ -876,7 +878,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.epilog = "exit codes: 0 valid, 1 invalid, 3 inconclusive, 2 error"
 
     p = sub.add_parser("validateaddress", help="the scriptPubKey an address encodes, and what kind of script it is (no node, no wallet)")
-    p.add_argument("address", metavar="ADDRESS")
+    p.add_argument(
+        "address",
+        metavar="ADDRESS|SCRIPTPUBKEY",
+        help="an address, or a scriptPubKey as hex (then --network chooses the address encoding shown)",
+    )
+    p.add_argument(
+        "--network", choices=sorted(NETWORKS), default=None, help="address encoding for a scriptPubKey given as hex (default: main)"
+    )
     p.add_argument("--json", action="store_true", help="print JSON instead of text")
     p.add_argument("--output", "-o", help="write the output here instead of stdout")
     p.description = (

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0 (2026-09-18)
+
+- `verifymessage` and `verify_message()` take the scriptPubKey as hex in
+  place of the address. BIP-322 defines the challenge as "the key script to
+  be proven"; the address is one encoding of it, the bytes are the other.
+  The verdict records the `scriptPubKey` actually verified.
+- `validateaddress` accepts a scriptPubKey as hex too (`--network` picks
+  the address encoding shown).
+
 ## 0.8.1 (2026-09-17)
 
 - `validateaddress` text: the byte count on the type line, so the scriptPubKey line is the bytes alone.
