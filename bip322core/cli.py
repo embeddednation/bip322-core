@@ -460,9 +460,11 @@ def cmd_verify(args) -> int:
 
 
 def format_verify_text(verdict: dict) -> str:
-    """The text ``verifymessage`` prints for a verdict (``VerifyResult.to_dict()``): the state, then one line per engine.
+    """The text ``verifymessage`` prints for a verdict (``VerifyResult.to_dict()``): the state, one line per engine, then the tool.
 
-    Public so that documents quoting the command can show its exact output.
+    Public so that documents quoting the command can show its exact output;
+    the last line names the tool and the specification version, so that the
+    quoted output says by what it was produced.
     """
     state = str(verdict["state"]).upper()
     reason = verdict.get("reason") or ""
@@ -486,6 +488,8 @@ def format_verify_text(verdict: dict) -> str:
         else:
             label = engine
         lines.append(f"  [{label}] {'ok' if run.get('ok') else 'FAIL: ' + str(run.get('error'))}")
+    if verdict.get("tool"):
+        lines.append(f"  {verdict['tool']}" + (f", {verdict['spec']}" if verdict.get("spec") else ""))
     return "\n".join(lines)
 
 

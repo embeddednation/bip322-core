@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.2 (2026-09-18)
+
+- `verifymessage` text output ends with the tool and specification line
+  (`bip322-core 0.9.2, BIP-322 v2.0.0 (2026-06-04)`), so a quoted output
+  names what produced it.
+
 ## 0.9.1 (2026-09-18)
 
 - `bip322-refcheck` takes a scriptPubKey as hex too (`--network` for the encoding), passing the reference implementations the address of the same bytes.
