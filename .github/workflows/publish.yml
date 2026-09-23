@@ -1,0 +1,30 @@
+name: publish
+
+# Builds the sdist and the wheel and uploads them to PyPI through trusted publishing
+# (no token: PyPI trusts this repository's workflow, once the project lists it as a
+# publisher).  Run by hand from the Actions tab for the tag to publish; switch the
+# trigger to tag pushes once the first release is out.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: the tag to publish (vX.Y.Z)
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade build
+      - run: python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1

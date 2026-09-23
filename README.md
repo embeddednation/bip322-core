@@ -20,7 +20,7 @@ Three independent things live here:
 | [bip322-reports](https://github.com/embeddednation/bip322-reports) | Balance reports for a period in which every coin is backed by a verified proof from a ledger of bip322-audit bundles. Depends on bip322-audit. |
 | `refcheck/` | Cross-checks against the reference implementations: btcd's `bip322` package, Bitcoin Knots' `verifymessage`, Bitcoin Core 31.1 as signer/finalizer, and btclib. Command `bip322-refcheck` (needs the downloaded binaries). |
 
-How the three packages are used together over a year, by the holder and by the auditor, is in bip322-reports' [handbook](https://github.com/embeddednation/bip322-reports/blob/main/docs/handbook.md).
+How the three packages are used together over a year, by the holder and by the auditor, is in bip322-reports' [handbook](https://github.com/embeddednation/bip322-reports/blob/main/bip322reports/handbook.md).
 
 ## Install
 

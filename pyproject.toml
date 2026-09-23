@@ -9,10 +9,24 @@ description = "BIP-322 message signing and verification for descriptor wallets (
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
+readme = "README.md"
+authors = [{ name = "Embedded Nation AB" }]
+keywords = ["bitcoin", "bip322", "proof of control", "audit", "multisig", "psbt"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Office/Business :: Financial :: Accounting",
+]
 dependencies = [
     "embit>=0.8.0",
     "btclib>=2026.9.10",
 ]
+
+[project.urls]
+Homepage = "https://github.com/embeddednation/bip322-core"
+Changelog = "https://github.com/embeddednation/bip322-core/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 kernel = ["py-bitcoinkernel>=0.1.0a5"]
