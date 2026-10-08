@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: setup (venv, hash-pinned dependencies, editable install)
+        run: ./setup.sh --no-tests
+      - name: versions
+        run: |
+          python3 --version
+          .venv/bin/python --version
+          .venv/bin/pip --version
+          .venv/bin/ruff --version
+          .venv/bin/python -m pytest --version
+          .venv/bin/bip322 engines
+      - name: lint
+        run: .venv/bin/ruff check bip322core refcheck tests
+      - name: tests
+        run: .venv/bin/python -m pytest -q
+      - name: walkthrough (dummy keys, no node)
+        run: examples/walkthrough.sh /tmp/wt > /tmp/wt.log 2>&1 || (tail -40 /tmp/wt.log; exit 1)
+
+  refcheck:
+    # the reference implementations: ~200 MB of downloads, so on demand only
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: setup with reference binaries
+        run: ./setup.sh --with-refcheck --no-tests
+      - name: corpus against btclib, btcd, Knots and Core
+        run: .venv/bin/python -m refcheck.verify_one corpus

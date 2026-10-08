@@ -1,0 +1,14 @@
+# Exact runtime dependencies of bip322 with sha256 hashes (pip --require-hashes).
+# Regenerate: pip download --no-deps -d wheels <pkg>==<ver> ... && pip hash wheels/*
+# Generated 2026-09-14 for CPython 3.12 / manylinux x86_64 (py-bitcoinkernel wheel is platform-specific).
+
+embit==0.8.0 \
+    --hash=sha256:8bf4b10073c67400370ce523fb16f035fe759f6fdd987c579bdcc268d75ed770
+btclib==2026.9.10 \
+    --hash=sha256:789cc70b867ec2bf6f183a4844965b6113d6c82be9ebf8b575f224cb642d7e6a
+bitcoin-core-rpc==2026.9.3 \
+    --hash=sha256:f6971e7fae0e1e98f900172ea56ee618fc6734942ab17b17395a925224edb3f5
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
+py-bitcoinkernel==0.1.0a5 \
+    --hash=sha256:557b5d0ec2f8e1c3a04418dbae33ff68dc67e36bed5ba722b10c7ec4135d0c0f
