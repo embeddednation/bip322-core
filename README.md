@@ -25,6 +25,12 @@ How the three packages are used together over a year, by the holder and by the a
 ## Install
 
 ```sh
+python3 -m venv ~/.bip322 && ~/.bip322/bin/pip install "bip322-core[kernel]"   # Python 3.11+; [kernel] needs CPython 3.12 on Linux x86_64
+```
+
+For development, the reference checks, or a hash-pinned install:
+
+```sh
 git clone https://github.com/embeddednation/bip322-core.git && cd bip322-core
 ./setup.sh                      # venv, hash-pinned dependencies, editable install, tests
 export PATH="$PWD/.venv/bin:$PATH"
