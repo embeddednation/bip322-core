@@ -17,7 +17,7 @@ What lives here:
 | `tests/` | The pytest suite: the official BIP-322 vectors, a full 2-of-3 roundtrip for every signer pair, negatives, CLI. |
 | `bip322 NAME ...` | Runs `bip322-NAME ...` found next to the program or on PATH, git style, so the family below is one command: `bip322 audit verify`, `bip322 report --year 2026`, `bip322 dev keygen`. |
 | [bip322-audit](https://github.com/embeddednation/bip322-audit) | The proof-of-control workflow (snapshot, finalize, verify) that talks to a node. Its own repository and distribution; depends on this package. |
-| [bip322-report](https://github.com/embeddednation/bip322-report) | Balance reports for a period in which every coin is backed by a verified proof from an archive of bip322-audit bundles. Depends on bip322-audit. |
+| [bip322-report](https://github.com/embeddednation/bip322-report) | The statement of a period in which every coin is backed by a verified proof from the wallet's snapshots. Depends on bip322-audit. |
 | `refcheck/` | Cross-checks against the reference implementations: btcd's `bip322` package, Bitcoin Knots' `verifymessage`, Bitcoin Core 31.1 as signer/finalizer, and btclib. Command `python -m refcheck.verify_one` (needs the downloaded binaries). |
 
 How the three packages are used together over a year, by the holder and by the auditor, is in bip322-report's [handbook](https://github.com/embeddednation/bip322-report/blob/main/bip322report/handbook.md).
