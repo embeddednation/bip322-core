@@ -56,6 +56,7 @@ __all__ = [
     "extract_tx",
     "finalize_input",
     "finalize_psbt",
+    "group_by_transaction",
     "input_finalized",
     "inspect_psbt",
     "is_finalized",
@@ -379,6 +380,20 @@ def _input_keys(inp) -> list[ec.PublicKey]:
 # --------------------------------------------------------------------------- #
 # combine / finalize / extract
 # --------------------------------------------------------------------------- #
+
+
+def group_by_transaction(psbts: Sequence[BIP322PSBT]) -> list[list[BIP322PSBT]]:
+    """The PSBTs grouped by the transaction they sign, in order of first appearance.
+
+    The devices' files for one address all carry the same ``to_sign``
+    transaction, whose txid is fixed by the message and the address, so a
+    snapshot's whole ``signed/`` directory falls into one group per address,
+    each ready for ``combine_psbts``.
+    """
+    groups: dict[str, list[BIP322PSBT]] = {}
+    for psbt in psbts:
+        groups.setdefault(psbt.tx.txid(), []).append(psbt)
+    return list(groups.values())
 
 
 def combine_psbts(psbts: Sequence[BIP322PSBT]) -> BIP322PSBT:

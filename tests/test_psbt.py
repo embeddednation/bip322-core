@@ -380,7 +380,39 @@ def test_checksigners(wallet, signer_expressions, masters, tmp_path, capsys):
     assert "combinations valid: 3/3" in capsys.readouterr().out
     path.write_text(two.to_string())
     assert main(["checksigners", str(path), "--json"]) == 1
-    assert __import__("json").loads(capsys.readouterr().out)["summary"]["combinations_valid"] == "1/3"
+    (only,) = __import__("json").loads(capsys.readouterr().out)
+    assert only["summary"]["combinations_valid"] == "1/3"
+
+
+def test_checksigners_takes_every_address_of_a_snapshot_at_once(wallet, signer_expressions, tmp_path, capsys):
+    """A snapshot's signed/*.psbt: grouped by the transaction they sign, one check per address, one verdict for all."""
+    from bip322core.cli import main
+    from bip322core.psbt import group_by_transaction
+
+    signed = tmp_path / "signed"
+    signed.mkdir()
+    files, psbts = [], []
+    for index in (1, 2):
+        for i, signer in enumerate(signer_expressions):
+            part = signed_psbt(wallet, [signer], MESSAGE, index=index)
+            path = signed / f"to_sign-0{index}-{'ABC'[i]}.psbt"
+            path.write_text(part.to_string())
+            files.append(str(path))
+            psbts.append(part)
+    groups = group_by_transaction(psbts)
+    assert [len(g) for g in groups] == [3, 3] and groups[0][0] is psbts[0] and groups[1][0] is psbts[3]
+    assert main(["checksigners", *files]) == 0
+    out = capsys.readouterr().out
+    assert sum(line.startswith("address   ") for line in out.splitlines()) == 2 and out.count("combinations valid: 3/3") == 2
+    assert out.endswith("\naddresses OK: 2/2\nRESULT: OK\n") and out.count("RESULT") == 1
+    assert out.index(wallet.derive(1).address) < out.index(wallet.derive(2).address)
+    # one address short of its quorum fails the whole check, and the JSON is one report per address
+    assert main(["checksigners", "--json", *files[:1], *files[3:]]) == 1
+    reports = __import__("json").loads(capsys.readouterr().out)
+    assert [r["address"] for r in reports] == [wallet.derive(1).address, wallet.derive(2).address]
+    assert [r["ok"] for r in reports] == [False, True]
+    assert main(["checksigners", *files[:1], *files[3:]]) == 1
+    assert capsys.readouterr().out.endswith("\naddresses OK: 1/2\nRESULT: FAILED\n")
 
 
 def test_checksigners_p2wpkh(wpkh):

@@ -137,14 +137,16 @@ and shows the message, address, partial signatures and any problems; it also
 warns about metadata a hardware signer needs (witness script, key paths) and
 flags any sighash type other than ALL.
 
-`bip322 checksigners proof-A.psbt proof-B.psbt proof-C.psbt` is the yearly device health
-check and the full explanation of a signed PSBT in one: it combines the
-devices' files, rebuilds the script behind the input and shows how it hashes
-back to the scriptPubKey and address, verifies each cosigner's signature on its
-own, then finalizes and verifies one proof per threshold-sized combination (all
-three pairs of a 2-of-3), showing the witness each assembled;
-`finalizepsbt --signers ea34d476,7d5dc65a` (master fingerprints) does one chosen
-combination by hand.
+`bip322 checksigners signed/*.psbt` is the yearly device health check and the
+full explanation of the signed PSBTs in one: it groups the files by the
+transaction they sign (one per address) and combines each address's files,
+rebuilds the script behind the input and shows how it hashes back to the
+scriptPubKey and address, verifies each cosigner's signature on its own, then
+finalizes and verifies one proof per threshold-sized combination (all three
+pairs of a 2-of-3), showing the witness each assembled. One address is reported
+after the other with one RESULT for all; `--json` gives a list with one report
+per address. `finalizepsbt --signers ea34d476,7d5dc65a` (master fingerprints)
+does one chosen combination by hand.
 
 `bip322 help` lists every command with its argument signature, grouped as in
 `bitcoin-cli help`; `bip322 help <command>` shows the arguments, options and

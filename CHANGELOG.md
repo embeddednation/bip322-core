@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0 (2026-10-15)
+
+- `bip322 checksigners` takes the files of any number of addresses at once
+  (a snapshot's `signed/*.psbt`): they are grouped by the transaction they
+  sign, each address is combined and checked on its own, and the exit code
+  covers them all. The `--json` report is now a list with one entry per
+  address, however many files were given.
+
 ## 0.11.1 (2026-10-06)
 
 First public release.

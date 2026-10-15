@@ -201,7 +201,12 @@ def _psbt_commands(sub, argv: list[str], commands: Commands) -> None:
 
 def _verification_commands(sub, argv: list[str], commands: Commands) -> None:
     p = sub.add_parser("checksigners", help="the whole picture of a signed PSBT: script chain, every cosigner, every threshold combination")
-    p.add_argument("psbts", nargs="+", metavar="PSBT", help="the signed PSBT, or the separate files each device produced (combined here)")
+    p.add_argument(
+        "psbts",
+        nargs="+",
+        metavar="PSBT",
+        help="the signed PSBT, the separate files each device produced (combined here), or a snapshot's whole signed/*.psbt: one check per address",
+    )
     add_option(p, "network", "address network for the report (default: main)")
     add_option(p, "engines", "comma separated bip322 engines (default: all installed)")
     add_option(p, "json", "JSON report including every combination's proof")
@@ -210,12 +215,14 @@ def _verification_commands(sub, argv: list[str], commands: Commands) -> None:
         "Device health check and explanation in one: rebuild the script behind the input and show how it hashes back to "
         "the scriptPubKey and address; verify each cosigner's signature on its own; then finalize and verify one proof per "
         "threshold-sized combination of cosigners (all three pairs of a 2-of-3), showing the witness each one assembled. "
-        "Exit 0 when the script matches, every signer is valid and every combination verifies."
+        "Files of several addresses (a snapshot's signed/*.psbt) are grouped by the transaction they sign and each address is "
+        "reported on its own. Exit 0 when, for every address, the script matches, every signer is valid and every combination verifies."
     )
     p.set_defaults(
         func=commands["checksigners"],
         examples=[
             "checksigners proof-A.psbt proof-B.psbt proof-C.psbt",
+            "checksigners signed/*.psbt                 # every address of a snapshot, each on its own",
             "checksigners combined.psbt --json -o signers-2026-09-15.json",
         ],
     )

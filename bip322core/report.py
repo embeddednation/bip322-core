@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 
 from embit.descriptor.checksum import add_checksum
 from embit.networks import NETWORKS
@@ -115,8 +116,20 @@ def format_verify_text(verdict: dict) -> str:
     return "\n".join(lines)
 
 
-def format_signers_text(report: dict) -> str:
-    """The text ``checksigners`` prints for ``signers.check_signers``'s report: the script chain, every signer, every combination."""
+def format_signers_text(reports: dict | Sequence[dict]) -> str:
+    """The text ``checksigners`` prints for ``signers.check_signers``'s reports, one per address: the script chain, every signer,
+    every combination; one RESULT line for all of them."""
+    reports = [reports] if isinstance(reports, dict) else list(reports)
+    lines: list[str] = []
+    for report in reports:
+        lines += [*([""] if lines else []), *_signers_block(report)]
+    if len(reports) > 1:
+        lines += ["", f"addresses OK: {sum(bool(r['ok']) for r in reports)}/{len(reports)}"]
+    lines.append("RESULT: " + ("OK" if reports and all(r["ok"] for r in reports) else "FAILED"))
+    return "\n".join(lines)
+
+
+def _signers_block(report: dict) -> list[str]:
     lines = [f"address   {report['address']}", f"message   {report['message_utf8']!r}", f"threshold {report['threshold']}", ""]
     lines += _script_chain_lines(report.get("script") or {})
     for s in report["signers"]:
@@ -132,8 +145,7 @@ def format_signers_text(report: dict) -> str:
     summary = report["summary"]
     lines.append("")
     lines.append(f"signers valid: {summary['signers_valid']}; combinations valid: {summary['combinations_valid']}")
-    lines.append("RESULT: " + ("OK" if report["ok"] else "FAILED"))
-    return "\n".join(lines)
+    return lines
 
 
 def _script_chain_lines(sc: dict) -> list[str]:

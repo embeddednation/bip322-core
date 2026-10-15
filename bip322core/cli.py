@@ -20,7 +20,7 @@ from .cli_parser import DASH_NOTE, MESSAGE_HELP, make_parser
 from .core import build_to_spend
 from .engines import available_engines, check_engines, engine_versions
 from .msglint import lint_message
-from .psbt import combine_psbts, create_psbt, extract_tx, finalize_psbt, inspect_psbt, signature_from_psbt
+from .psbt import combine_psbts, create_psbt, extract_tx, finalize_psbt, group_by_transaction, inspect_psbt, signature_from_psbt
 from .report import (
     address_info,
     decode_signature_report,
@@ -272,12 +272,13 @@ def cmd_verifymessage(args) -> int:
 
 
 def cmd_checksigners(args) -> int:
+    """One check per address: the files are grouped by the transaction they sign and each group combined."""
     engines = _engines(args)
-    psbts = [read_psbt(p) for p in args.psbts]
-    psbt = combine_psbts(psbts) if len(psbts) > 1 else psbts[0]
-    report = check_signers(psbt, engines=engines, network=network_of(args) or "main")
-    emit(json.dumps(report, indent=2) if args.json else format_signers_text(report), args.output)
-    return 0 if report["ok"] else 1
+    network = network_of(args) or "main"
+    groups = group_by_transaction([read_psbt(p) for p in args.psbts])
+    reports = [check_signers(combine_psbts(group), engines=engines, network=network) for group in groups]
+    emit(json.dumps(reports, indent=2) if args.json else format_signers_text(reports), args.output)
+    return 0 if all(r["ok"] for r in reports) else 1
 
 
 def cmd_validateaddress(args) -> int:
