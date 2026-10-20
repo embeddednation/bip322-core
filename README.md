@@ -146,7 +146,8 @@ finalizes and verifies one proof per threshold-sized combination (all three
 pairs of a 2-of-3), showing the witness each assembled. One address is reported
 after the other with one RESULT for all; `--json` gives a list with one report
 per address. `finalizepsbt --signers ea34d476,7d5dc65a` (master fingerprints)
-does one chosen combination by hand.
+does one chosen combination by hand. Over a snapshot of bip322-audit's tree,
+`bip322 audit checksigners` runs the same check on the snapshot's PSBTs.
 
 `bip322 help` lists every command with its argument signature, grouped as in
 `bitcoin-cli help`; `bip322 help <command>` shows the arguments, options and
